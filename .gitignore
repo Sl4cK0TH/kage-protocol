@@ -12,13 +12,14 @@ frontend/pnpm-debug.log*
 
 # Python
 backend/__pycache__/
+backend/**/__pycache__/
 backend/*.pyc
 backend/.pytest_cache/
 backend/.venv/
 backend/venv/
 
 # SQLite
-backend/data/*.db
+backend/data/
 
 # OS
 .DS_Store

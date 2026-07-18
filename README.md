@@ -4,25 +4,27 @@
 
 The Kage Protocol is a production-grade CTF challenge infrastructure dashboard. It lets administrators define Docker-based challenges ("Jutsus"), spawn isolated containers ("Shadow Clones"), and manage lifecycle policies ("Chakra Control") from a cyberpunk command center UI.
 
+**Platform-agnostic** — integrates with CTFd, TryHackMe (self-hosted), or any custom platform via a simple API.
+
 ## Use Case
 
-- Define challenge images, internal ports, and RAM limits.
-- Spawn containers on demand from an external platform (CTFd) using a protected API key.
+- Define challenge images, internal ports, RAM/CPU limits.
+- Spawn containers on demand from an external platform using a protected API key.
 - Monitor running containers, inspect logs, and force-kill instances.
-- Automatically reap expired containers with a background task.
+- Automatically reap expired containers with a background task (The Reaper).
 
 ## Architecture
 
 - Frontend: Next.js (App Router), React, Tailwind CSS
 - Backend: FastAPI (Python)
 - Database: SQLite (SQLModel)
-- Infrastructure: Docker SDK (local Docker daemon via socket bind)
+- Infrastructure: Docker SDK (via Docker socket proxy for security)
 
 ## Repository Layout
 
 - backend/ - FastAPI API, Docker SDK integration, SQLite models
 - frontend/ - Next.js admin dashboard
-- docker-compose.yml - backend container + Docker socket mount
+- docker-compose.yml - backend + Docker socket proxy
 
 ## Prerequisites
 
@@ -32,19 +34,27 @@ The Kage Protocol is a production-grade CTF challenge infrastructure dashboard. 
 
 ## Installation (Quick Start)
 
-1) Configure the backend:
+1) Generate your admin password hash:
+
+```bash
+pip install bcrypt
+python backend/scripts/hash_password.py your_password_here
+```
+
+2) Configure the backend:
 
 ```bash
 cp backend/.env.example backend/.env
+# Edit backend/.env — set ADMIN_PASSWORD_HASH, KAGE_API_KEY, SESSION_SECRET
 ```
 
-2) Start the backend (Docker):
+3) Start the backend (Docker):
 
 ```bash
 docker compose up --build
 ```
 
-3) Configure the frontend:
+4) Configure and start the frontend:
 
 ```bash
 cd frontend
@@ -53,7 +63,7 @@ npm install
 npm run dev
 ```
 
-4) Open the dashboard:
+5) Open the dashboard:
 
 ```text
 http://localhost:3000
@@ -67,6 +77,7 @@ Backend:
 - sqlmodel / sqlalchemy
 - docker (Python SDK)
 - itsdangerous
+- bcrypt
 
 Frontend:
 - next
@@ -77,7 +88,7 @@ Frontend:
 ## Commands
 
 Backend:
-- `docker compose up --build` - run backend in Docker
+- `docker compose up --build` - run backend in Docker (recommended)
 - `uvicorn app.main:app --reload` - run backend locally
 
 Frontend (from frontend/):
@@ -85,31 +96,47 @@ Frontend (from frontend/):
 - `npm run build` - build for production
 - `npm run start` - run the production build
 
-## Basic Configuration
+## Configuration
 
 Backend (.env):
-- `ADMIN_USERNAME` / `ADMIN_PASSWORD` - admin credentials
-- `KAGE_API_KEY` - API key for public spawn endpoint
-- `SESSION_SECRET` - cookie signing secret
-- `CORS_ORIGINS` - comma-separated list of allowed origins
-- `DB_URL` - SQLite URL
-- `PUBLIC_HOST` - host returned to clients from spawn responses
-- `SPAWN_RATE_LIMIT_COUNT` / `SPAWN_RATE_LIMIT_WINDOW_SECONDS` - rate limit config
+
+| Variable | Required | Description |
+|---|---|---|
+| `ADMIN_USERNAME` | ✅ | Admin login username |
+| `ADMIN_PASSWORD_HASH` | ✅ | bcrypt hash of admin password |
+| `KAGE_API_KEY` | ✅ | API key for public spawn endpoint |
+| `SESSION_SECRET` | ✅ | Cookie signing secret |
+| `CORS_ORIGINS` | | Comma-separated allowed origins |
+| `DB_URL` | | SQLite URL (default: `sqlite:///./data/kage.db`) |
+| `PUBLIC_HOST` | | Host returned in spawn responses |
+| `CHALLENGE_NETWORK` | | Docker network for containers (default: `kage-challenges`) |
+| `DEFAULT_CPU_LIMIT` | | CPU cores per container (default: `0.5`) |
+| `LOG_LEVEL` | | Python log level (default: `INFO`) |
+| `JSON_LOGS` | | Use JSON log format (default: `false`) |
+| `SPAWN_RATE_LIMIT_COUNT` | | Max spawns per window (default: `30`) |
+| `SPAWN_RATE_LIMIT_WINDOW_SECONDS` | | Rate limit window (default: `60`) |
 
 Frontend (.env):
 - `NEXT_PUBLIC_API_BASE` - FastAPI base URL
 - `NEXT_PUBLIC_SESSION_COOKIE_NAME` - admin cookie name
 
-## Security Notes
+## Security
 
-- All admin endpoints are protected with HTTP-only cookie sessions.
-- The public spawn endpoint requires a static `X-Kage-Key` header.
-- The backend mounts `/var/run/docker.sock` to control the host Docker daemon.
+- **Docker Socket Proxy**: The backend never mounts the raw Docker socket. A Tecnativa socket proxy restricts API access to only the endpoints Kage needs.
+- **Password Hashing**: Admin password is stored as a bcrypt hash. Plaintext is never stored.
+- **CSRF Protection**: Double-submit cookie pattern protects all state-mutating admin endpoints.
+- **HTTP-only Cookies**: Session cookies are HttpOnly and SameSite=Lax.
+- **API Key Auth**: Public spawn endpoint requires `X-Kage-Key` header.
+- **Container Isolation**: Spawned containers run on a dedicated Docker network with CPU and RAM limits.
+- **Rate Limiting**: Spawn requests are rate-limited per API key + client IP.
+- **Audit Logging**: All admin and spawn actions are logged with timestamps and IP addresses.
 
-## Documentation
+## Platform Integration
 
-- Admin UI docs are available inside the dashboard under Chakra Control and Documentation.
-- CTFd integration snippet: backend/CTFD_SNIPPET.md
+See [backend/INTEGRATION.md](backend/INTEGRATION.md) for integration guides covering:
+- CTFd (dynamic challenge handler)
+- TryHackMe (self-hosted landing page)
+- Generic webhook / curl
 
 ## License
 

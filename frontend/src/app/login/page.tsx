@@ -2,9 +2,9 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button } from "@/components/ui";
-import { Input } from "@/components/ui";
+import { Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Input } from "@/components/ui";
 import { apiRequest } from "@/lib/api";
+import { toast } from "@/lib/toast";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -23,6 +23,7 @@ export default function LoginPage() {
         method: "POST",
         body: { username, password }
       });
+      toast({ title: "Access Granted", description: "Welcome back, Administrator.", variant: "success" });
       router.push("/dashboard");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");
@@ -33,32 +34,34 @@ export default function LoginPage() {
 
   return (
     <main className="min-h-screen flex items-center justify-center px-6">
-      <div className="panel w-full max-w-md p-8 rounded-2xl animate-in">
-        <p className="font-display uppercase tracking-[0.3em] text-xs text-neon">The Kage Protocol</p>
-        <h1 className="font-display text-3xl mt-3 text-white">Command Center Access</h1>
-        <p className="text-sm text-slate-400 mt-2">
-          Authenticate as an admin to manage jutsus and shadow clones.
-        </p>
-        <form className="mt-6 space-y-4" onSubmit={handleSubmit}>
-          <Input
-            label="Username"
-            value={username}
-            onChange={(event) => setUsername(event.target.value)}
-            placeholder="Zor0ark"
-          />
-          <Input
-            label="Password"
-            type="password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            placeholder="••••••••"
-          />
-          {error ? <p className="text-sm text-ember">{error}</p> : null}
-          <Button type="submit" disabled={loading} full>
-            {loading ? "Authenticating..." : "Enter Dashboard"}
-          </Button>
-        </form>
-      </div>
+      <Card className="w-full max-w-md">
+        <CardHeader>
+          <p className="text-xs uppercase tracking-[0.4em] text-emerald-300">The Kage Protocol</p>
+          <CardTitle>Command Center Access</CardTitle>
+          <CardDescription>Authenticate as an admin to manage jutsus and shadow clones.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form className="space-y-4" onSubmit={handleSubmit}>
+            <Input
+              label="Username"
+              value={username}
+              onChange={(event) => setUsername(event.target.value)}
+              placeholder="Zor0ark"
+            />
+            <Input
+              label="Password"
+              type="password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              placeholder="••••••••"
+            />
+            {error ? <p className="text-sm text-red-400">{error}</p> : null}
+            <Button type="submit" disabled={loading} className="w-full">
+              {loading ? "Authenticating..." : "Enter Dashboard"}
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
     </main>
   );
 }

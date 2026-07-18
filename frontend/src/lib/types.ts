@@ -5,6 +5,7 @@ export interface ChallengeConfig {
   docker_image_name: string;
   internal_ports: number[];
   ram_limit: string;
+  cpu_limit: number;
 }
 
 export interface GlobalSettings {
