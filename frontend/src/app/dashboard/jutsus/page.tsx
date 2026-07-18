@@ -106,6 +106,12 @@ export default function JutsuPage() {
       }
       setModalOpen(false);
       await load();
+    } catch (error) {
+      toast({
+        title: "Save Failed",
+        description: error instanceof Error ? error.message : "Unable to save jutsu.",
+        variant: "destructive"
+      });
     } finally {
       setSaving(false);
     }

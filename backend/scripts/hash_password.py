@@ -19,9 +19,11 @@ def main() -> None:
 
     plaintext = sys.argv[1].encode("utf-8")
     hashed = bcrypt.hashpw(plaintext, bcrypt.gensalt(rounds=12))
-    print(f"\nGenerated bcrypt hash:\n{hashed.decode('utf-8')}\n")
-    print("Paste this value into your .env as:")
-    print(f'ADMIN_PASSWORD_HASH={hashed.decode("utf-8")}')
+    hash_str = hashed.decode("utf-8")
+    docker_hash = hash_str.replace("$", "$$")
+    print(f"\nGenerated bcrypt hash:\n{hash_str}\n")
+    print("For Docker Compose, paste this value into your .env as:")
+    print(f"ADMIN_PASSWORD_HASH={docker_hash}")
 
 
 if __name__ == "__main__":
