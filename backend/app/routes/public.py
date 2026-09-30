@@ -49,12 +49,15 @@ def spawn_challenge(
         port_range_start=global_settings.port_range_start,
         port_range_end=global_settings.port_range_end,
         network_name=app_settings.challenge_network,
+        challenge_id=challenge.id,
+        challenge_name=challenge.name,
     )
 
     # Build audit metadata with optional platform info
     meta: dict[str, object] = {
         "container_id": result["container_id"],
         "ip": client_ip,
+        "challenge_name": challenge.name,
     }
     if body:
         if body.platform:

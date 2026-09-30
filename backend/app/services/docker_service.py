@@ -21,6 +21,10 @@ logger = get_logger(__name__)
 SPAWNER_LABEL = "spawner"
 SPAWNER_VALUE = "kage-protocol"
 EXPIRES_LABEL = "expires_at"
+# Labels that tie a running container back to the Jutsu (ChallengeConfig)
+# that spawned it, so the dashboard can group/label clones by challenge.
+CHALLENGE_ID_LABEL = "kage_challenge_id"
+CHALLENGE_NAME_LABEL = "kage_challenge_name"
 
 # ---------------------------------------------------------------------------
 # Singleton
@@ -63,6 +67,7 @@ class DockerService:
             container.reload()
             labels = container.labels or {}
             ports = container.attrs.get("NetworkSettings", {}).get("Ports", {})
+            challenge_id = labels.get(CHALLENGE_ID_LABEL)
             items.append(
                 {
                     "id": container.id,
@@ -71,6 +76,10 @@ class DockerService:
                     "status": container.status,
                     "labels": labels,
                     "ports": ports,
+                    # Surface the originating Jutsu so the UI can label clones
+                    # without having to parse the raw label map.
+                    "challenge_id": int(challenge_id) if challenge_id and str(challenge_id).isdigit() else None,
+                    "challenge_name": labels.get(CHALLENGE_NAME_LABEL),
                 }
             )
         return items
@@ -194,6 +203,8 @@ class DockerService:
         port_range_start: int,
         port_range_end: int,
         network_name: str = "kage-challenges",
+        challenge_id: int | None = None,
+        challenge_name: str | None = None,
     ) -> dict[str, Any]:
         if not internal_ports:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No internal ports defined")
@@ -216,6 +227,12 @@ class DockerService:
             SPAWNER_LABEL: SPAWNER_VALUE,
             EXPIRES_LABEL: str(expires_at),
         }
+        # Tag the container with its originating Jutsu so clones can be
+        # grouped, counted, and labelled by challenge in the dashboard.
+        if challenge_id is not None:
+            labels[CHALLENGE_ID_LABEL] = str(challenge_id)
+        if challenge_name:
+            labels[CHALLENGE_NAME_LABEL] = challenge_name
 
         # Ensure the challenge network exists
         self.ensure_challenge_network(network_name)

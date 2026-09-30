@@ -20,6 +20,7 @@ import {
   Skeleton
 } from "@/components/ui";
 import { toast } from "@/lib/toast";
+import { IconEdit, IconPlay, IconPlus, IconTrash } from "@/components/icons";
 
 const emptyForm = {
   id: undefined as number | undefined,
@@ -145,7 +146,10 @@ export default function JutsuPage() {
           <h2 className="font-display text-2xl text-white">Jutsu Library</h2>
           <p className="text-sm text-zinc-500">Craft and maintain your challenge roster.</p>
         </div>
-        <Button onClick={openCreate}>New Jutsu</Button>
+        <Button onClick={openCreate} className="gap-2">
+          <IconPlus className="h-4 w-4" />
+          New Jutsu
+        </Button>
       </div>
 
       {loading ? (
@@ -183,13 +187,21 @@ export default function JutsuPage() {
                 </div>
               </CardContent>
               <CardFooter className="mt-auto flex flex-wrap gap-2">
-                <Button size="sm" onClick={() => handleSpawn(item.id, item.name)}>
-                  Spawn Clone
+                <Button size="sm" className="gap-1.5" onClick={() => handleSpawn(item.id, item.name)}>
+                  <IconPlay className="h-3.5 w-3.5" />
+                  Spawn
                 </Button>
-                <Button size="sm" variant="outline" onClick={() => openEdit(item)}>
+                <Button size="sm" variant="outline" className="gap-1.5" onClick={() => openEdit(item)}>
+                  <IconEdit className="h-3.5 w-3.5" />
                   Edit
                 </Button>
-                <Button size="sm" variant="destructive" onClick={() => setDeleteTarget({ id: item.id, name: item.name })}>
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  className="gap-1.5"
+                  onClick={() => setDeleteTarget({ id: item.id, name: item.name })}
+                >
+                  <IconTrash className="h-3.5 w-3.5" />
                   Delete
                 </Button>
               </CardFooter>

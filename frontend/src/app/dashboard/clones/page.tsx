@@ -1,15 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useMemo, useState } from "react";
 import { apiRequest } from "@/lib/api";
 import { ContainerInfo } from "@/lib/types";
 import {
   Button,
   ConfirmDialog,
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
   Skeleton,
   Table,
   TableBody,
@@ -20,50 +16,27 @@ import {
 } from "@/components/ui";
 import { toast } from "@/lib/toast";
 import { useCountdown } from "@/lib/useCountdown";
+import { useSnapshotStream } from "@/lib/useSnapshotStream";
+import { StreamStatusBadge } from "@/components/stream-status";
+import { CloneDetailDrawer } from "@/components/clone-detail-drawer";
+import { IconTerminal, IconTrash } from "@/components/icons";
 
 export default function CloneManagerPage() {
-  const [items, setItems] = useState<ContainerInfo[]>([]);
-  const [selectedLogs, setSelectedLogs] = useState<string | null>(null);
-  const [logsOpen, setLogsOpen] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const { snapshot, status } = useSnapshotStream();
+  const loading = snapshot === null;
+  const items = snapshot?.containers ?? [];
+
   const [killTarget, setKillTarget] = useState<{ id: string; name: string } | null>(null);
   const [killing, setKilling] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  const load = async () => {
-    setLoading(true);
-    try {
-      const data = await apiRequest<ContainerInfo[]>("/api/admin/docker/containers");
-      setItems(data);
-    } catch (error) {
-      toast({
-        title: "Load Failed",
-        description: error instanceof Error ? error.message : "Unable to fetch clones.",
-        variant: "destructive"
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    load();
-    const interval = setInterval(load, 5000);
-    return () => clearInterval(interval);
-  }, []);
-
-  const handleLogs = async (id: string) => {
-    try {
-      const data = await apiRequest<{ logs: string }>(`/api/admin/docker/containers/${id}/logs`);
-      setSelectedLogs(data.logs);
-      setLogsOpen(true);
-    } catch (error) {
-      toast({
-        title: "Logs Unavailable",
-        description: error instanceof Error ? error.message : "Unable to fetch logs.",
-        variant: "destructive"
-      });
-    }
-  };
+  // Derive the selected container + its live stats straight from the stream,
+  // so the drawer updates in real time and closes if the clone disappears.
+  const selected = useMemo(() => items.find((c) => c.id === selectedId) ?? null, [items, selectedId]);
+  const selectedStat = useMemo(
+    () => snapshot?.stats?.containers?.find((s) => s.id === selectedId) ?? null,
+    [snapshot, selectedId]
+  );
 
   const handleKill = async (id: string) => {
     setKilling(true);
@@ -71,7 +44,7 @@ export default function CloneManagerPage() {
       await apiRequest(`/api/admin/docker/containers/${id}`, { method: "DELETE" });
       toast({ title: "Clone Terminated", description: "Container destroyed.", variant: "destructive" });
       setKillTarget(null);
-      await load();
+      if (selectedId === id) setSelectedId(null);
     } catch (error) {
       toast({
         title: "Kill Failed",
@@ -85,9 +58,12 @@ export default function CloneManagerPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="font-display text-2xl text-white">Active Clones</h2>
-        <p className="text-sm text-zinc-500">Monitor every shadow clone and reap on demand.</p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h2 className="font-display text-2xl text-white">Active Clones</h2>
+          <p className="text-sm text-zinc-500">Monitor every shadow clone and reap on demand.</p>
+        </div>
+        <StreamStatusBadge status={status} />
       </div>
 
       <div className="rounded-xl border border-zinc-900 bg-zinc-950/70">
@@ -95,6 +71,7 @@ export default function CloneManagerPage() {
           <TableHeader>
             <TableRow>
               <TableHead>Container</TableHead>
+              <TableHead>Jutsu</TableHead>
               <TableHead>Ports</TableHead>
               <TableHead>Time Remaining</TableHead>
               <TableHead>Status</TableHead>
@@ -104,7 +81,7 @@ export default function CloneManagerPage() {
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={5}>
+                <TableCell colSpan={6}>
                   <div className="space-y-2">
                     <Skeleton className="h-4 w-1/2" />
                     <Skeleton className="h-4 w-2/3" />
@@ -115,34 +92,33 @@ export default function CloneManagerPage() {
             ) : null}
             {!loading && !items.length ? (
               <TableRow>
-                <TableCell colSpan={5} className="text-zinc-500">
+                <TableCell colSpan={6} className="text-zinc-500">
                   No active clones.
                 </TableCell>
               </TableRow>
             ) : null}
             {items.map((item) => (
-              <CloneRow key={item.id} item={item} onLogs={handleLogs} onKill={(id, name) => setKillTarget({ id, name })} />
+              <CloneRow
+                key={item.id}
+                item={item}
+                onOpen={() => setSelectedId(item.id)}
+                onKill={(id, name) => setKillTarget({ id, name })}
+              />
             ))}
           </TableBody>
         </Table>
       </div>
 
-      <Dialog
-        open={logsOpen}
+      <CloneDetailDrawer
+        container={selected}
+        stat={selectedStat}
+        open={selected !== null}
         onOpenChange={(open) => {
-          setLogsOpen(open);
-          if (!open) setSelectedLogs(null);
+          if (!open) setSelectedId(null);
         }}
-      >
-        <DialogContent className="bg-black text-green-400">
-          <DialogHeader>
-            <DialogTitle className="text-green-300">Container Logs</DialogTitle>
-          </DialogHeader>
-          <div className="max-h-[420px] overflow-y-auto rounded-lg border border-green-500/20 bg-black p-4 font-mono text-xs text-green-400 flex flex-col-reverse">
-            <pre className="whitespace-pre-wrap">{selectedLogs || "No logs yet."}</pre>
-          </div>
-        </DialogContent>
-      </Dialog>
+        onKill={(id, name) => setKillTarget({ id, name })}
+        killing={killing}
+      />
 
       <ConfirmDialog
         open={killTarget !== null}
@@ -160,11 +136,11 @@ export default function CloneManagerPage() {
 
 function CloneRow({
   item,
-  onLogs,
+  onOpen,
   onKill
 }: {
   item: ContainerInfo;
-  onLogs: (id: string) => void;
+  onOpen: () => void;
   onKill: (id: string, name: string) => void;
 }) {
   const remainingSeconds = useCountdown(item.time_remaining_seconds ?? 0);
@@ -178,12 +154,21 @@ function CloneRow({
   ).join(", ");
 
   return (
-    <TableRow>
+    <TableRow className="cursor-pointer transition hover:bg-zinc-900/40" onClick={onOpen}>
       <TableCell>
         <div>
           <p className="text-zinc-100">{item.name || item.id.slice(0, 12)}</p>
           <p className="text-xs text-zinc-500">{item.image?.join(", ")}</p>
         </div>
+      </TableCell>
+      <TableCell>
+        {item.challenge_name ? (
+          <span className="inline-flex items-center rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-xs text-emerald-200">
+            {item.challenge_name}
+          </span>
+        ) : (
+          <span className="text-xs text-zinc-600">—</span>
+        )}
       </TableCell>
       <TableCell className="text-zinc-300">{ports || "-"}</TableCell>
       <TableCell className="text-emerald-300">
@@ -198,11 +183,19 @@ function CloneRow({
         </div>
       </TableCell>
       <TableCell>
-        <div className="flex flex-wrap gap-2">
-          <Button size="sm" variant="outline" onClick={() => onLogs(item.id)}>
-            View Logs
+        {/* stopPropagation so action buttons don't also open the drawer */}
+        <div className="flex flex-wrap gap-2" onClick={(e) => e.stopPropagation()}>
+          <Button size="sm" variant="outline" className="gap-1.5" onClick={onOpen}>
+            <IconTerminal className="h-3.5 w-3.5" />
+            Details
           </Button>
-          <Button size="sm" variant="destructive" onClick={() => onKill(item.id, item.name || item.id.slice(0, 12))}>
+          <Button
+            size="sm"
+            variant="destructive"
+            className="gap-1.5"
+            onClick={() => onKill(item.id, item.name || item.id.slice(0, 12))}
+          >
+            <IconTrash className="h-3.5 w-3.5" />
             Kill
           </Button>
         </div>

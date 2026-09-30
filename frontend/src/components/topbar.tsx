@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui";
+import { IconLogout } from "@/components/icons";
 import { apiRequest } from "@/lib/api";
 import { toast } from "@/lib/toast";
 
@@ -20,7 +21,8 @@ export function Topbar() {
         <p className="text-xs uppercase tracking-[0.3em] text-zinc-500">Shadow Operations</p>
         <p className="text-lg font-display text-white">Live Control</p>
       </div>
-      <Button variant="outline" size="sm" onClick={handleLogout}>
+      <Button variant="outline" size="sm" onClick={handleLogout} className="gap-2">
+        <IconLogout className="h-4 w-4" />
         Logout
       </Button>
     </header>
