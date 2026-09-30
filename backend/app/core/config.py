@@ -53,6 +53,7 @@ class Settings:
     challenge_network: str
     default_cpu_limit: float
     cookie_secure: bool
+    audit_retention_days: int  # 0 = keep audit entries forever
 
 
 @lru_cache(maxsize=1)
@@ -76,4 +77,5 @@ def get_settings() -> Settings:
         challenge_network=os.getenv("CHALLENGE_NETWORK", "kage-challenges"),
         default_cpu_limit=float(os.getenv("DEFAULT_CPU_LIMIT", "0.5")),
         cookie_secure=os.getenv("COOKIE_SECURE", "false").lower() == "true",
+        audit_retention_days=max(0, int(os.getenv("AUDIT_RETENTION_DAYS", "90"))),
     )

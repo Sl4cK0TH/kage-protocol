@@ -1,5 +1,7 @@
 # The Kage Protocol
 
+[![CI](https://github.com/Sl4cK0TH/kage-protocol/actions/workflows/ci.yml/badge.svg)](https://github.com/Sl4cK0TH/kage-protocol/actions/workflows/ci.yml)
+
 ## Overview
 
 The Kage Protocol is a production-grade CTF challenge infrastructure dashboard. It lets administrators define Docker-based challenges ("Jutsus"), spawn isolated containers ("Shadow Clones"), and manage lifecycle policies ("Chakra Control") from a cyberpunk command center UI.
@@ -90,6 +92,7 @@ Frontend:
 Backend:
 - `docker compose up --build` - run backend in Docker (recommended)
 - `uvicorn app.main:app --reload` - run backend locally
+- `pip install -r requirements-dev.txt && pytest` - run the backend test suite (Python 3.11, from `backend/`)
 
 Frontend (from frontend/):
 - `npm run dev` - start the development server
@@ -115,6 +118,7 @@ Backend (.env):
 | `JSON_LOGS` | | Use JSON log format (default: `false`) |
 | `SPAWN_RATE_LIMIT_COUNT` | | Max spawns per window (default: `30`) |
 | `SPAWN_RATE_LIMIT_WINDOW_SECONDS` | | Rate limit window (default: `60`) |
+| `AUDIT_RETENTION_DAYS` | | Delete audit entries older than this; `0` keeps them forever (default: `90`) |
 
 Frontend (.env):
 - `NEXT_PUBLIC_API_BASE` - FastAPI base URL
@@ -130,6 +134,12 @@ Frontend (.env):
 - **Container Isolation**: Spawned containers run on a dedicated Docker network with CPU and RAM limits.
 - **Rate Limiting**: Spawn requests are rate-limited per API key + client IP.
 - **Audit Logging**: All admin and spawn actions are logged with timestamps and IP addresses.
+
+## Testing & CI
+
+The backend suite (`backend/tests/`) runs against an in-memory fake of the Docker daemon, so it needs no Docker access. It covers auth/CSRF, Jutsu and settings validation, spawn/kill/extend flows, the Reaper, audit pagination and retention, and the SSE streams.
+
+GitHub Actions (`.github/workflows/ci.yml`) runs on every push to `master` and on pull requests: backend tests on Python 3.11, a frontend type-check and production build, and a backend Docker image build.
 
 ## Platform Integration
 

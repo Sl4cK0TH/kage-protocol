@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { apiRequest } from "@/lib/api";
+import { apiRequest, apiRequestWithHeaders } from "@/lib/api";
+import { AuditEntry } from "@/lib/types";
 import {
+  Button,
   Card,
-  CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
@@ -16,15 +17,9 @@ import {
   TableHeader,
   TableRow
 } from "@/components/ui";
+import { toast } from "@/lib/toast";
 
-interface AuditEntry {
-  id: number;
-  created_at: number;
-  actor: string;
-  action: string;
-  target: string;
-  meta: Record<string, unknown>;
-}
+const PAGE_SIZE = 50;
 
 const ACTION_COLORS: Record<string, string> = {
   login: "text-blue-400",
@@ -34,10 +29,17 @@ const ACTION_COLORS: Record<string, string> = {
   delete_jutsu: "text-red-400",
   spawn: "text-teal-400",
   admin_spawn: "text-teal-400",
+  extend_ttl: "text-sky-400",
   public_kill: "text-orange-400",
   kill_container: "text-red-400",
+  reap: "text-violet-400",
   update_settings: "text-amber-400"
 };
+
+interface AuditSummary {
+  total: number;
+  by_action: Record<string, number>;
+}
 
 function formatTimestamp(epoch: number): string {
   const d = new Date(epoch * 1000);
@@ -66,53 +68,105 @@ function formatMeta(meta: Record<string, unknown>): string {
 
 export default function AuditPage() {
   const [entries, setEntries] = useState<AuditEntry[]>([]);
+  const [total, setTotal] = useState(0);
+  const [summary, setSummary] = useState<AuditSummary | null>(null);
+  const [page, setPage] = useState(0);
+  const [action, setAction] = useState("");
   const [loading, setLoading] = useState(true);
 
+  // Whole-log counts for the summary cards (not just the visible page).
   useEffect(() => {
+    apiRequest<AuditSummary>("/api/admin/audit/summary")
+      .then(setSummary)
+      .catch(() => undefined); // 401 redirect handled by apiRequest
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
     const load = async () => {
+      setLoading(true);
       try {
-        const data = await apiRequest<AuditEntry[]>("/api/admin/audit?limit=100");
+        const params = new URLSearchParams({ limit: String(PAGE_SIZE), offset: String(page * PAGE_SIZE) });
+        if (action) params.set("action", action);
+        const { data, headers } = await apiRequestWithHeaders<AuditEntry[]>(`/api/admin/audit?${params}`);
+        if (cancelled) return;
         setEntries(data);
-      } catch {
-        // handled by apiRequest (redirect on 401)
+        setTotal(Number(headers.get("X-Total-Count") ?? data.length));
+      } catch (error) {
+        if (!cancelled) {
+          toast({
+            title: "Audit Log Unavailable",
+            description: error instanceof Error ? error.message : "Unable to load audit events.",
+            variant: "destructive"
+          });
+        }
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     };
     load();
-  }, []);
+    return () => {
+      cancelled = true;
+    };
+  }, [page, action]);
+
+  const count = (...actions: string[]) => actions.reduce((sum, a) => sum + (summary?.by_action[a] ?? 0), 0);
+  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const firstShown = total ? page * PAGE_SIZE + 1 : 0;
+  const lastShown = Math.min(total, (page + 1) * PAGE_SIZE);
 
   return (
     <div className="space-y-6">
       <div>
         <h2 className="font-display text-2xl text-white">Audit Log</h2>
-        <p className="text-sm text-zinc-500">
-          Complete record of admin and spawn events.
-        </p>
+        <p className="text-sm text-zinc-500">Complete record of admin, spawn, and Reaper events.</p>
       </div>
 
-      {/* Summary cards */}
-      <section className="grid gap-4 md:grid-cols-4">
-        <StatCard label="Total Events" value={entries.length} loading={loading} />
-        <StatCard
-          label="Logins"
-          value={entries.filter((e) => e.action === "login").length}
-          loading={loading}
-        />
-        <StatCard
-          label="Spawns"
-          value={entries.filter((e) => e.action === "spawn" || e.action === "admin_spawn").length}
-          loading={loading}
-        />
-        <StatCard
-          label="Kills"
-          value={entries.filter((e) => e.action.includes("kill")).length}
-          loading={loading}
-        />
+      <section className="grid gap-4 sm:grid-cols-2 md:grid-cols-4">
+        <StatCard label="Total Events" value={summary?.total} />
+        <StatCard label="Spawns" value={summary && count("spawn", "admin_spawn")} />
+        <StatCard label="Kills" value={summary && count("kill_container", "public_kill")} />
+        <StatCard label="Reaped" value={summary && count("reap")} />
       </section>
 
-      {/* Table */}
-      <div className="rounded-xl border border-zinc-900 bg-zinc-950/70">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <label className="flex items-center gap-2 text-xs uppercase tracking-[0.2em] text-zinc-500">
+          <span>Action</span>
+          <select
+            className="rounded-md border border-zinc-800 bg-zinc-950/70 px-3 py-2 text-sm normal-case tracking-normal text-zinc-100"
+            value={action}
+            onChange={(event) => {
+              setAction(event.target.value);
+              setPage(0);
+            }}
+          >
+            <option value="">All actions</option>
+            {Object.keys(ACTION_COLORS).map((name) => (
+              <option key={name} value={name}>
+                {name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="flex items-center gap-3 text-xs text-zinc-500">
+          <span>
+            {firstShown}–{lastShown} of {total}
+          </span>
+          <Button size="sm" variant="outline" disabled={page === 0 || loading} onClick={() => setPage((p) => p - 1)}>
+            Prev
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={page + 1 >= pageCount || loading}
+            onClick={() => setPage((p) => p + 1)}
+          >
+            Next
+          </Button>
+        </div>
+      </div>
+
+      <div className="overflow-x-auto rounded-xl border border-zinc-900 bg-zinc-950/70">
         <Table>
           <TableHeader>
             <TableRow>
@@ -140,36 +194,35 @@ export default function AuditPage() {
             {!loading && !entries.length ? (
               <TableRow>
                 <TableCell colSpan={6} className="text-zinc-500">
-                  No audit events recorded yet.
+                  {action ? `No "${action}" events recorded.` : "No audit events recorded yet."}
                 </TableCell>
               </TableRow>
             ) : null}
-            {entries.map((entry) => (
-              <TableRow key={entry.id}>
-                <TableCell className="whitespace-nowrap text-xs text-zinc-400">
-                  {formatTimestamp(entry.created_at)}
-                </TableCell>
-                <TableCell className="text-zinc-200">{entry.actor}</TableCell>
-                <TableCell>
-                  <span
-                    className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ${
-                      ACTION_COLORS[entry.action] || "text-zinc-300"
-                    } bg-zinc-900`}
-                  >
-                    {entry.action}
-                  </span>
-                </TableCell>
-                <TableCell className="max-w-[140px] truncate font-mono text-xs text-zinc-400">
-                  {entry.target}
-                </TableCell>
-                <TableCell className="text-xs text-zinc-500">
-                  {(entry.meta?.ip as string) || "—"}
-                </TableCell>
-                <TableCell className="max-w-[200px] truncate text-xs text-zinc-500">
-                  {formatMeta(entry.meta)}
-                </TableCell>
-              </TableRow>
-            ))}
+            {!loading &&
+              entries.map((entry) => (
+                <TableRow key={entry.id}>
+                  <TableCell className="whitespace-nowrap text-xs text-zinc-400">
+                    {formatTimestamp(entry.created_at)}
+                  </TableCell>
+                  <TableCell className="text-zinc-200">{entry.actor}</TableCell>
+                  <TableCell>
+                    <span
+                      className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ${
+                        ACTION_COLORS[entry.action] || "text-zinc-300"
+                      } bg-zinc-900`}
+                    >
+                      {entry.action}
+                    </span>
+                  </TableCell>
+                  <TableCell className="max-w-[140px] truncate font-mono text-xs text-zinc-400">
+                    {entry.target}
+                  </TableCell>
+                  <TableCell className="text-xs text-zinc-500">{(entry.meta?.ip as string) || "—"}</TableCell>
+                  <TableCell className="max-w-[200px] truncate text-xs text-zinc-500">
+                    {formatMeta(entry.meta)}
+                  </TableCell>
+                </TableRow>
+              ))}
           </TableBody>
         </Table>
       </div>
@@ -177,16 +230,13 @@ export default function AuditPage() {
   );
 }
 
-function StatCard({ label, value, loading }: { label: string; value: number; loading: boolean }) {
+function StatCard({ label, value }: { label: string; value: number | null | undefined }) {
   return (
     <Card>
       <CardHeader>
         <CardDescription>{label}</CardDescription>
-        <CardTitle>{loading ? "—" : value}</CardTitle>
+        {value === null || value === undefined ? <Skeleton className="h-7 w-16" /> : <CardTitle>{value}</CardTitle>}
       </CardHeader>
-      <CardContent>
-        {loading ? <Skeleton className="h-2 w-full" /> : null}
-      </CardContent>
     </Card>
   );
 }

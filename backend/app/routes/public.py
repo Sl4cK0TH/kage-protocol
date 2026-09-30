@@ -114,17 +114,19 @@ def public_kill_container(
     except ValueError:
         raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Rate limit exceeded")
 
-    docker_service = get_docker_service()
+    # kill_container only touches Kage-labelled containers; anything else
+    # (including the backend/proxy themselves) is reported as not found.
     try:
-        docker_service.kill_container(container_id)
-        lifecycle_service.remove_expiry(session, container_id)
-        log_event(
-            session,
-            actor="api_key",
-            action="public_kill",
-            target=container_id,
-            meta={"ip": client_ip},
-        )
-        return {"status": "success", "message": "Challenge terminated."}
-    except Exception:
+        full_id = get_docker_service().kill_container(container_id)
+    except HTTPException:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Container not found or already dead")
+
+    lifecycle_service.remove_expiry(session, full_id)
+    log_event(
+        session,
+        actor="api_key",
+        action="public_kill",
+        target=full_id,
+        meta={"ip": client_ip},
+    )
+    return {"status": "success", "message": "Challenge terminated."}

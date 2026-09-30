@@ -127,6 +127,12 @@ Create a simple web page that calls the Kage API on button click:
 </script>
 ```
 
+> **Security:** this script runs in the player's browser, so anyone can read the
+> `X-Kage-Key` from the page source and call the spawn/kill API directly. Kill
+> requests only ever affect Kage-spawned containers, but for public events put
+> the request behind a small server-side proxy (like the CTFd handler above)
+> rather than embedding the key.
+
 ### Option 3: curl / CLI (for workshops)
 
 ```bash

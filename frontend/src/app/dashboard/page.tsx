@@ -210,8 +210,10 @@ const ACTION_META: Record<string, { label: string; dot: string }> = {
   delete_jutsu: { label: "Deleted jutsu", dot: "bg-red-400" },
   spawn: { label: "Spawned clone", dot: "bg-teal-400" },
   admin_spawn: { label: "Spawned clone", dot: "bg-teal-400" },
+  extend_ttl: { label: "Extended clone TTL", dot: "bg-sky-400" },
   public_kill: { label: "Player stopped clone", dot: "bg-orange-400" },
   kill_container: { label: "Killed clone", dot: "bg-red-400" },
+  reap: { label: "Reaper expired clone", dot: "bg-violet-400" },
   update_settings: { label: "Updated settings", dot: "bg-amber-400" }
 };
 

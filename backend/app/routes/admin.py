@@ -2,9 +2,9 @@ import asyncio
 import json
 import threading
 import time
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy import desc
+from sqlalchemy import desc, func
 from sqlmodel import Session, select
 from app.core.deps import get_current_admin, require_csrf
 from app.core.logging import get_logger
@@ -82,6 +82,8 @@ def create_jutsu(
     session.refresh(jutsu)
     client_ip = request.client.host if request.client else "unknown"
     log_event(session, actor=admin, action="create_jutsu", target=str(jutsu.id), meta={"ip": client_ip})
+    # log_event commits, which expires `jutsu`; reload it or it serializes as {}.
+    session.refresh(jutsu)
     return jutsu
 
 
@@ -114,6 +116,7 @@ def update_jutsu(
     session.refresh(jutsu)
     client_ip = request.client.host if request.client else "unknown"
     log_event(session, actor=admin, action="update_jutsu", target=str(jutsu.id), meta={"ip": client_ip})
+    session.refresh(jutsu)  # see create_jutsu
     return jutsu
 
 
@@ -152,6 +155,17 @@ def update_settings(
 ) -> GlobalSettings:
     settings = get_global_settings(session)
     data = payload.model_dump(exclude_unset=True)
+
+    # The update is partial, so validate the port range against the merged
+    # result: an inverted range would make every spawn fail with "no ports".
+    start = data.get("port_range_start", settings.port_range_start)
+    end = data.get("port_range_end", settings.port_range_end)
+    if start > end:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="port_range_start must be less than or equal to port_range_end",
+        )
+
     for key, value in data.items():
         setattr(settings, key, value)
     session.add(settings)
@@ -159,6 +173,7 @@ def update_settings(
     session.refresh(settings)
     client_ip = request.client.host if request.client else "unknown"
     log_event(session, actor=admin, action="update_settings", target="global", meta={"ip": client_ip})
+    session.refresh(settings)  # see create_jutsu
     return settings
 
 
@@ -343,10 +358,10 @@ def kill_container(
     session: Session = Depends(get_session),
     admin: str = Depends(get_current_admin),
 ) -> dict[str, str]:
-    get_docker_service().kill_container(container_id)
-    lifecycle_service.remove_expiry(session, container_id)
+    full_id = get_docker_service().kill_container(container_id)
+    lifecycle_service.remove_expiry(session, full_id)
     client_ip = request.client.host if request.client else "unknown"
-    log_event(session, actor=admin, action="kill_container", target=container_id, meta={"ip": client_ip})
+    log_event(session, actor=admin, action="kill_container", target=full_id, meta={"ip": client_ip})
     return {"status": "killed"}
 
 
@@ -460,8 +475,39 @@ def admin_spawn(
 # Audit log
 # ---------------------------------------------------------------------------
 
+AUDIT_MAX_PAGE_SIZE = 500
+
+
 @router.get("/audit", dependencies=[Depends(get_current_admin)])
-def list_audit(session: Session = Depends(get_session), limit: int = 50) -> list[AuditLog]:
-    statement = select(AuditLog).order_by(desc(AuditLog.created_at)).limit(limit)
+def list_audit(
+    response: Response,
+    session: Session = Depends(get_session),
+    limit: int = Query(50, ge=1, le=AUDIT_MAX_PAGE_SIZE),
+    offset: int = Query(0, ge=0),
+    action: str | None = Query(None, max_length=64),
+) -> list[AuditLog]:
+    """
+    Page through the audit log, newest first, optionally filtered by action.
+
+    The body stays a plain list for backward compatibility; the total number
+    of matching rows is returned in the ``X-Total-Count`` header.
+    """
+    statement = select(AuditLog)
+    count_statement = select(func.count()).select_from(AuditLog)
+    if action:
+        statement = statement.where(AuditLog.action == action)
+        count_statement = count_statement.where(AuditLog.action == action)
+
+    response.headers["X-Total-Count"] = str(session.exec(count_statement).one())
+    # id breaks ties between events logged within the same second.
+    statement = statement.order_by(desc(AuditLog.created_at), desc(AuditLog.id)).offset(offset).limit(limit)
     return session.exec(statement).all()
+
+
+@router.get("/audit/summary", dependencies=[Depends(get_current_admin)])
+def audit_summary(session: Session = Depends(get_session)) -> dict[str, object]:
+    """Event counts across the whole audit log, grouped by action."""
+    rows = session.exec(select(AuditLog.action, func.count()).group_by(AuditLog.action)).all()
+    by_action = {action: count for action, count in rows}
+    return {"total": sum(by_action.values()), "by_action": by_action}
 

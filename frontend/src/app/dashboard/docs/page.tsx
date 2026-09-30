@@ -130,6 +130,14 @@ export default function DocsPage() {
         <pre className="whitespace-pre-wrap rounded-lg bg-zinc-950 p-4 text-xs text-zinc-200 border border-zinc-800">
           {snippets[active].code}
         </pre>
+        {active === "TryHackMe" ? (
+          <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-200">
+            <strong>Security:</strong> this page runs in the player&apos;s browser, so anyone can read the
+            X-Kage-Key from its source and spawn or stop clones directly. Kill requests are limited to
+            Kage-spawned containers, but for public events put the call behind a small server-side proxy
+            (as the CTFd handler does) instead of embedding the key.
+          </p>
+        ) : null}
       </div>
 
       {/* TryHackMe specific note */}

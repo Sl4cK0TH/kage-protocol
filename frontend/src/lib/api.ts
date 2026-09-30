@@ -18,7 +18,30 @@ function getCookie(name: string): string | null {
   return match ? match.split("=")[1] : null;
 }
 
+/**
+ * Turn a FastAPI error body into a readable message. Validation errors (422)
+ * carry `detail` as an array of `{ msg, loc }` objects rather than a string.
+ */
+function formatErrorDetail(detail: unknown): string {
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    const messages = detail
+      .map((item) => (typeof item?.msg === "string" ? item.msg.replace(/^Value error, /, "") : null))
+      .filter(Boolean);
+    if (messages.length) return messages.join("; ");
+  }
+  return "Request failed";
+}
+
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  return (await apiRequestWithHeaders<T>(path, options)).data;
+}
+
+/** Like `apiRequest`, but also returns the response headers (e.g. pagination totals). */
+export async function apiRequestWithHeaders<T>(
+  path: string,
+  options: RequestOptions = {}
+): Promise<{ data: T; headers: Headers }> {
   const method = (options.method || "GET").toUpperCase();
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -46,8 +69,8 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
 
   if (!response.ok) {
     const payload = await response.json().catch(() => ({ detail: "Request failed" }));
-    throw new Error(payload.detail || "Request failed");
+    throw new Error(formatErrorDetail(payload.detail));
   }
 
-  return response.json();
+  return { data: await response.json(), headers: response.headers };
 }

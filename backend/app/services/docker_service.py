@@ -8,10 +8,12 @@ a new Docker client on every request.
 
 import random
 import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 import docker
 from docker.errors import NotFound, APIError
+from docker.utils import parse_repository_tag
 from fastapi import HTTPException, status
 
 from app.core.logging import get_logger
@@ -25,6 +27,12 @@ EXPIRES_LABEL = "expires_at"
 # that spawned it, so the dashboard can group/label clones by challenge.
 CHALLENGE_ID_LABEL = "kage_challenge_id"
 CHALLENGE_NAME_LABEL = "kage_challenge_name"
+
+# Upper bound on concurrent `docker stats` calls. Each call blocks ~1-2s while
+# the daemon samples CPU, so they are fanned out; this stays below docker-py's
+# default connection pool size (10).
+STATS_MAX_WORKERS = 8
+STATS_CACHE_SECONDS = 5.0
 
 # ---------------------------------------------------------------------------
 # Singleton
@@ -62,14 +70,11 @@ class DockerService:
         """
         Pull an image, yielding raw progress dicts from the Docker daemon.
 
-        Splits ``repository:tag`` carefully so a registry ``host:port`` prefix
-        or a ``@sha256:`` digest isn't mistaken for a tag.
+        Uses docker-py's own reference parser so a registry ``host:port``
+        prefix isn't mistaken for a tag and ``repo@sha256:...`` digests are
+        pulled by digest.
         """
-        last_segment = image_name.rsplit(":", 1)
-        if len(last_segment) == 2 and "/" not in last_segment[1]:
-            repository, tag = last_segment[0], last_segment[1]
-        else:
-            repository, tag = image_name, None
+        repository, tag = parse_repository_tag(image_name.strip())
 
         logger.info("Pulling image %s (tag=%s)", repository, tag or "latest")
         for line in self.client.api.pull(repository, tag=tag, stream=True, decode=True):
@@ -77,19 +82,52 @@ class DockerService:
 
     # -- containers -------------------------------------------------------
 
+    def _list_kage(self) -> list[Any]:
+        """
+        List Kage-spawned containers.
+
+        ``containers.list()`` already inspects each container, so no extra
+        ``reload()`` is needed. ``ignore_removed`` tolerates a clone being
+        reaped between the list and inspect calls instead of raising.
+        """
+        return self.client.containers.list(
+            filters={"label": f"{SPAWNER_LABEL}={SPAWNER_VALUE}"},
+            ignore_removed=True,
+        )
+
+    def _get_kage_container(self, container_id: str) -> Any:
+        """
+        Fetch a container by ID/name, but only if Kage spawned it.
+
+        ``containers.get`` also resolves names and short IDs, so without the
+        label check an API-key holder could target *any* container on the
+        host (including the backend and socket proxy). Foreign containers are
+        reported as 404 so their existence isn't leaked.
+        """
+        try:
+            container = self.client.containers.get(container_id)
+        except NotFound:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Container not found")
+        if (container.labels or {}).get(SPAWNER_LABEL) != SPAWNER_VALUE:
+            logger.warning("Refused operation on non-Kage container %s", container_id[:12])
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Container not found")
+        return container
+
     def list_kage_containers(self) -> list[dict[str, Any]]:
-        containers = self.client.containers.list(filters={"label": f"{SPAWNER_LABEL}={SPAWNER_VALUE}"})
         items = []
-        for container in containers:
-            container.reload()
+        for container in self._list_kage():
             labels = container.labels or {}
             ports = container.attrs.get("NetworkSettings", {}).get("Ports", {})
             challenge_id = labels.get(CHALLENGE_ID_LABEL)
+            # Use the image reference the container was started from rather
+            # than ``container.image`` (an extra API call per container that
+            # also raises if the image has since been deleted).
+            image_ref = container.attrs.get("Config", {}).get("Image")
             items.append(
                 {
                     "id": container.id,
                     "name": container.name,
-                    "image": container.image.tags,
+                    "image": [image_ref] if image_ref else [],
                     "status": container.status,
                     "labels": labels,
                     "ports": ports,
@@ -101,45 +139,42 @@ class DockerService:
             )
         return items
 
+    def _container_stat(self, container: Any) -> dict[str, Any] | None:
+        """Sample one container's stats; None if it vanished or errored."""
+        try:
+            raw = container.stats(stream=False)
+        except Exception:
+            return None
+        return {
+            "id": container.id,
+            "name": container.name,
+            "cpu_percent": round(self._calculate_cpu_percent(raw), 2),
+            "memory_usage": int(raw.get("memory_stats", {}).get("usage", 0)),
+            "memory_limit": int(raw.get("memory_stats", {}).get("limit", 0)),
+        }
+
     def get_kage_stats(self) -> dict[str, Any]:
-        """Return aggregate CPU/memory stats with a 5-second TTL cache."""
+        """
+        Return aggregate CPU/memory stats with a short TTL cache.
+
+        ``stats(stream=False)`` blocks ~1-2s per container while the daemon
+        takes a second CPU sample, so containers are sampled concurrently;
+        otherwise a few dozen clones would stall every dashboard refresh.
+        """
         now = time.monotonic()
-        if self._stats_cache is not None and (now - self._stats_cache_ts) < 5.0:
+        if self._stats_cache is not None and (now - self._stats_cache_ts) < STATS_CACHE_SECONDS:
             return self._stats_cache
 
-        containers = self.client.containers.list(filters={"label": f"{SPAWNER_LABEL}={SPAWNER_VALUE}"})
+        containers = self._list_kage()
         stats_list: list[dict[str, Any]] = []
-        total_cpu = 0.0
-        total_mem = 0
-        total_mem_limit = 0
-
-        for container in containers:
-            try:
-                raw = container.stats(stream=False)
-            except Exception:
-                continue
-            cpu_percent = self._calculate_cpu_percent(raw)
-            mem_usage = int(raw.get("memory_stats", {}).get("usage", 0))
-            mem_limit = int(raw.get("memory_stats", {}).get("limit", 0))
-
-            total_cpu += cpu_percent
-            total_mem += mem_usage
-            total_mem_limit += mem_limit
-
-            stats_list.append(
-                {
-                    "id": container.id,
-                    "name": container.name,
-                    "cpu_percent": round(cpu_percent, 2),
-                    "memory_usage": mem_usage,
-                    "memory_limit": mem_limit,
-                }
-            )
+        if containers:
+            with ThreadPoolExecutor(max_workers=min(STATS_MAX_WORKERS, len(containers))) as pool:
+                stats_list = [s for s in pool.map(self._container_stat, containers) if s is not None]
 
         result = {
-            "total_cpu_percent": round(total_cpu, 2),
-            "total_memory_usage": total_mem,
-            "total_memory_limit": total_mem_limit,
+            "total_cpu_percent": round(sum(s["cpu_percent"] for s in stats_list), 2),
+            "total_memory_usage": sum(s["memory_usage"] for s in stats_list),
+            "total_memory_limit": sum(s["memory_limit"] for s in stats_list),
             "containers": stats_list,
         }
         self._stats_cache = result
@@ -160,21 +195,20 @@ class DockerService:
         return 0.0
 
     def container_logs(self, container_id: str, tail: int = 200) -> str:
-        try:
-            container = self.client.containers.get(container_id)
-        except NotFound:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Container not found")
+        container = self._get_kage_container(container_id)
         logs = container.logs(tail=tail, stdout=True, stderr=True)
         return logs.decode("utf-8", errors="replace")
 
-    def kill_container(self, container_id: str) -> None:
+    def kill_container(self, container_id: str) -> str:
+        """Force-remove a Kage container; returns its full ID."""
+        container = self._get_kage_container(container_id)
         try:
-            container = self.client.containers.get(container_id)
             container.remove(force=True)
-            logger.info("Killed container %s", container_id[:12])
         except NotFound:
-            logger.warning("Attempted to kill non-existent container %s", container_id[:12])
+            logger.warning("Container %s vanished before it could be killed", container_id[:12])
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Container not found")
+        logger.info("Killed container %s", container.id[:12])
+        return container.id
 
     # -- network ----------------------------------------------------------
 
@@ -195,10 +229,9 @@ class DockerService:
 
     def get_used_host_ports(self) -> set[int]:
         used_ports: set[int] = set()
-        containers = self.client.containers.list()
-        for container in containers:
-            container.reload()
-            ports = container.attrs.get("NetworkSettings", {}).get("Ports", {})
+        # All running containers (not just Kage's) can hold host ports.
+        for container in self.client.containers.list(ignore_removed=True):
+            ports = container.attrs.get("NetworkSettings", {}).get("Ports", {}) or {}
             for mappings in ports.values():
                 if not mappings:
                     continue
