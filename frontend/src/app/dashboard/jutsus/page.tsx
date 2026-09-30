@@ -20,7 +20,8 @@ import {
   Skeleton
 } from "@/components/ui";
 import { toast } from "@/lib/toast";
-import { IconEdit, IconPlay, IconPlus, IconTrash } from "@/components/icons";
+import { IconDownload, IconEdit, IconPlay, IconPlus, IconTrash } from "@/components/icons";
+import { PullImageDialog } from "@/components/pull-image-dialog";
 
 const emptyForm = {
   id: undefined as number | undefined,
@@ -40,6 +41,7 @@ export default function JutsuPage() {
   const [form, setForm] = useState({ ...emptyForm });
   const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<{ id: number; name: string } | null>(null);
+  const [pullImage, setPullImage] = useState<string | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -191,6 +193,15 @@ export default function JutsuPage() {
                   <IconPlay className="h-3.5 w-3.5" />
                   Spawn
                 </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="gap-1.5"
+                  onClick={() => setPullImage(item.docker_image_name)}
+                >
+                  <IconDownload className="h-3.5 w-3.5" />
+                  Pull
+                </Button>
                 <Button size="sm" variant="outline" className="gap-1.5" onClick={() => openEdit(item)}>
                   <IconEdit className="h-3.5 w-3.5" />
                   Edit
@@ -266,6 +277,13 @@ export default function JutsuPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      <PullImageDialog
+        image={pullImage}
+        open={pullImage !== null}
+        onOpenChange={(open) => { if (!open) setPullImage(null); }}
+        onComplete={load}
+      />
 
       <ConfirmDialog
         open={deleteTarget !== null}

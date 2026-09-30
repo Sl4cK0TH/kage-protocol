@@ -164,6 +164,31 @@ export function IconActivity(props: IconProps) {
   );
 }
 
+export function IconMenu(props: IconProps) {
+  return (
+    <Base {...props}>
+      <path d="M4 6h16M4 12h16M4 18h16" />
+    </Base>
+  );
+}
+
+export function IconClose(props: IconProps) {
+  return (
+    <Base {...props}>
+      <path d="M18 6 6 18M6 6l12 12" />
+    </Base>
+  );
+}
+
+export function IconDownload(props: IconProps) {
+  return (
+    <Base {...props}>
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+      <path d="M7 10l5 5 5-5M12 15V3" />
+    </Base>
+  );
+}
+
 export function IconPulse(props: IconProps) {
   // Radiating signal — used for the live/running indicator.
   return (

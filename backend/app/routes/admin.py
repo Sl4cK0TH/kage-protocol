@@ -1,5 +1,6 @@
 import asyncio
 import json
+import threading
 import time
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
@@ -7,10 +8,19 @@ from sqlalchemy import desc
 from sqlmodel import Session, select
 from app.core.deps import get_current_admin, require_csrf
 from app.core.logging import get_logger
-from app.db import get_session
-from app.models import AuditLog, ChallengeConfig, ChallengeCreate, ChallengeUpdate, GlobalSettings, GlobalSettingsUpdate
+from app.db import get_session, session_scope
+from app.models import (
+    AuditLog,
+    ChallengeConfig,
+    ChallengeCreate,
+    ChallengeUpdate,
+    ExtendRequest,
+    GlobalSettings,
+    GlobalSettingsUpdate,
+)
 from app.services.audit_service import log_event
 from app.services.docker_service import get_docker_service, EXPIRES_LABEL
+from app.services import lifecycle_service
 from app.services.settings_service import get_global_settings
 
 logger = get_logger(__name__)
@@ -32,12 +42,18 @@ def _build_container_view() -> list[dict[str, object]]:
     """
     items = get_docker_service().list_kage_containers()
     now = int(time.time())
+    # A DB expiry override (set when a clone's TTL is extended) takes precedence
+    # over the immutable ``expires_at`` label baked in at spawn time.
+    with session_scope() as session:
+        overrides = lifecycle_service.get_all_expiries(session)
     for item in items:
-        expires_at = item.get("labels", {}).get(EXPIRES_LABEL)
-        if expires_at and str(expires_at).isdigit():
-            expires_at_int = int(expires_at)
-            item["expires_at"] = expires_at_int
-            item["time_remaining_seconds"] = max(0, expires_at_int - now)
+        label_expiry = item.get("labels", {}).get(EXPIRES_LABEL)
+        expires_at = overrides.get(item["id"])
+        if expires_at is None and label_expiry and str(label_expiry).isdigit():
+            expires_at = int(label_expiry)
+        if expires_at is not None:
+            item["expires_at"] = expires_at
+            item["time_remaining_seconds"] = max(0, expires_at - now)
         else:
             item["expires_at"] = None
             item["time_remaining_seconds"] = None
@@ -260,6 +276,66 @@ async def stream_container_logs(
     )
 
 
+@router.get("/docker/images/pull/stream")
+async def stream_image_pull(
+    image: str,
+    request: Request,
+    admin: str = Depends(get_current_admin),
+) -> StreamingResponse:
+    """
+    Pull a Docker image and stream progress to the client over SSE.
+
+    The blocking pull generator runs in a worker thread that feeds an asyncio
+    queue; the event loop drains it and forwards ``progress`` frames, ending
+    with ``done`` or ``error``. Keepalive comments prevent idle connections
+    from being dropped by intermediaries.
+    """
+    if not image or not image.strip():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Image name is required")
+
+    loop = asyncio.get_running_loop()
+    queue: asyncio.Queue = asyncio.Queue()
+    SENTINEL = object()
+
+    def worker() -> None:
+        try:
+            for line in get_docker_service().pull_image(image):
+                loop.call_soon_threadsafe(queue.put_nowait, ("progress", line))
+        except Exception as exc:  # surface pull failures to the client
+            loop.call_soon_threadsafe(queue.put_nowait, ("error", str(exc)))
+        finally:
+            loop.call_soon_threadsafe(queue.put_nowait, (SENTINEL, None))
+
+    async def event_generator():
+        threading.Thread(target=worker, name="image-pull", daemon=True).start()
+        while True:
+            if await request.is_disconnected():
+                break
+            try:
+                kind, payload = await asyncio.wait_for(queue.get(), timeout=1.0)
+            except asyncio.TimeoutError:
+                yield ": keepalive\n\n"
+                continue
+            if kind is SENTINEL:
+                yield f"event: done\ndata: {json.dumps({'image': image})}\n\n"
+                break
+            if kind == "error":
+                logger.warning("Image pull failed for %s: %s", image, payload)
+                yield f"event: error\ndata: {json.dumps({'detail': payload})}\n\n"
+                break
+            yield f"event: progress\ndata: {json.dumps(payload)}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
 @router.delete("/docker/containers/{container_id}", dependencies=[Depends(get_current_admin), Depends(require_csrf)])
 def kill_container(
     container_id: str,
@@ -268,9 +344,51 @@ def kill_container(
     admin: str = Depends(get_current_admin),
 ) -> dict[str, str]:
     get_docker_service().kill_container(container_id)
+    lifecycle_service.remove_expiry(session, container_id)
     client_ip = request.client.host if request.client else "unknown"
     log_event(session, actor=admin, action="kill_container", target=container_id, meta={"ip": client_ip})
     return {"status": "killed"}
+
+
+@router.post(
+    "/docker/containers/{container_id}/extend",
+    dependencies=[Depends(get_current_admin), Depends(require_csrf)],
+)
+def extend_container(
+    container_id: str,
+    payload: ExtendRequest,
+    request: Request,
+    session: Session = Depends(get_session),
+    admin: str = Depends(get_current_admin),
+) -> dict[str, object]:
+    """Extend a running clone's TTL, resetting the Reaper's countdown for it."""
+    # Confirm the container is a live Kage clone and read its current expiry.
+    container = next((c for c in _build_container_view() if c["id"].startswith(container_id) or c["id"] == container_id), None)
+    if not container:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Container not found")
+
+    now = int(time.time())
+    # Extend from the later of "now" and the current expiry so extending an
+    # already-expired-but-not-yet-reaped clone still yields the full window.
+    current_expiry = container.get("expires_at")
+    base = max(now, int(current_expiry)) if current_expiry else now
+    new_expiry = base + payload.minutes * 60
+
+    lifecycle_service.set_expiry(session, container["id"], new_expiry)
+
+    client_ip = request.client.host if request.client else "unknown"
+    log_event(
+        session,
+        actor=admin,
+        action="extend_ttl",
+        target=container["id"],
+        meta={"ip": client_ip, "minutes": payload.minutes, "expires_at": new_expiry},
+    )
+    return {
+        "container_id": container["id"],
+        "expires_at": new_expiry,
+        "time_remaining_seconds": max(0, new_expiry - now),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -317,6 +435,9 @@ def admin_spawn(
 
     client_ip = request.client.host if request.client else "unknown"
     assigned_ports = result["assigned_ports"]
+
+    # Record the authoritative (mutable) expiry so the TTL can be extended later.
+    lifecycle_service.set_expiry(session, result["container_id"], expires_at)
 
     log_event(
         session,

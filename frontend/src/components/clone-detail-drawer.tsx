@@ -26,10 +26,21 @@ interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onKill: (id: string, name: string) => void;
+  onExtend: (id: string, minutes: number) => void;
   killing?: boolean;
+  extending?: boolean;
 }
 
-export function CloneDetailDrawer({ container, stat, open, onOpenChange, onKill, killing }: Props) {
+export function CloneDetailDrawer({
+  container,
+  stat,
+  open,
+  onOpenChange,
+  onKill,
+  onExtend,
+  killing,
+  extending
+}: Props) {
   // Only stream logs while the drawer is open for a container.
   const { logs, status: logStatus } = useLogStream(open && container ? container.id : null);
   const remaining = useCountdown(container?.time_remaining_seconds ?? 0);
@@ -100,6 +111,25 @@ export function CloneDetailDrawer({ container, stat, open, onOpenChange, onKill,
                 label="Memory"
                 value={stat ? formatBytes(stat.memory_usage) : "—"}
               />
+            </div>
+
+            {/* Extend TTL */}
+            <div className="flex items-center justify-between gap-3 rounded-lg border border-zinc-900 bg-zinc-900/40 px-3 py-2">
+              <span className="text-xs uppercase tracking-[0.2em] text-zinc-500">Extend TTL</span>
+              <div className="flex gap-2">
+                {[15, 30, 60].map((m) => (
+                  <Button
+                    key={m}
+                    size="sm"
+                    variant="outline"
+                    className="h-7 px-2"
+                    disabled={extending}
+                    onClick={() => onExtend(container.id, m)}
+                  >
+                    +{m}m
+                  </Button>
+                ))}
+              </div>
             </div>
 
             {stat ? (

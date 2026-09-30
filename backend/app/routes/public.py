@@ -9,6 +9,7 @@ from app.db import get_session
 from app.models import ChallengeConfig, SpawnRequest
 from app.services.audit_service import log_event
 from app.services.docker_service import get_docker_service
+from app.services import lifecycle_service
 from app.services.settings_service import get_global_settings
 
 logger = get_logger(__name__)
@@ -52,6 +53,9 @@ def spawn_challenge(
         challenge_id=challenge.id,
         challenge_name=challenge.name,
     )
+
+    # Record the authoritative (mutable) expiry so the TTL can be extended later.
+    lifecycle_service.set_expiry(session, result["container_id"], expires_at)
 
     # Build audit metadata with optional platform info
     meta: dict[str, object] = {
@@ -113,6 +117,7 @@ def public_kill_container(
     docker_service = get_docker_service()
     try:
         docker_service.kill_container(container_id)
+        lifecycle_service.remove_expiry(session, container_id)
         log_event(
             session,
             actor="api_key",

@@ -58,6 +58,23 @@ class DockerService:
         images = self.client.images.list()
         return [{"id": image.id, "tags": image.tags} for image in images]
 
+    def pull_image(self, image_name: str):
+        """
+        Pull an image, yielding raw progress dicts from the Docker daemon.
+
+        Splits ``repository:tag`` carefully so a registry ``host:port`` prefix
+        or a ``@sha256:`` digest isn't mistaken for a tag.
+        """
+        last_segment = image_name.rsplit(":", 1)
+        if len(last_segment) == 2 and "/" not in last_segment[1]:
+            repository, tag = last_segment[0], last_segment[1]
+        else:
+            repository, tag = image_name, None
+
+        logger.info("Pulling image %s (tag=%s)", repository, tag or "latest")
+        for line in self.client.api.pull(repository, tag=tag, stream=True, decode=True):
+            yield line
+
     # -- containers -------------------------------------------------------
 
     def list_kage_containers(self) -> list[dict[str, Any]]:

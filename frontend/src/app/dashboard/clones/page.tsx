@@ -28,6 +28,7 @@ export default function CloneManagerPage() {
 
   const [killTarget, setKillTarget] = useState<{ id: string; name: string } | null>(null);
   const [killing, setKilling] = useState(false);
+  const [extending, setExtending] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   // Derive the selected container + its live stats straight from the stream,
@@ -37,6 +38,26 @@ export default function CloneManagerPage() {
     () => snapshot?.stats?.containers?.find((s) => s.id === selectedId) ?? null,
     [snapshot, selectedId]
   );
+
+  const handleExtend = async (id: string, minutes: number) => {
+    setExtending(true);
+    try {
+      const res = await apiRequest<{ time_remaining_seconds: number }>(
+        `/api/admin/docker/containers/${id}/extend`,
+        { method: "POST", body: { minutes } }
+      );
+      const mins = Math.floor(res.time_remaining_seconds / 60);
+      toast({ title: "TTL Extended", description: `+${minutes}m — now ${mins}m remaining.`, variant: "success" });
+    } catch (error) {
+      toast({
+        title: "Extend Failed",
+        description: error instanceof Error ? error.message : "Unable to extend TTL.",
+        variant: "destructive"
+      });
+    } finally {
+      setExtending(false);
+    }
+  };
 
   const handleKill = async (id: string) => {
     setKilling(true);
@@ -117,7 +138,9 @@ export default function CloneManagerPage() {
           if (!open) setSelectedId(null);
         }}
         onKill={(id, name) => setKillTarget({ id, name })}
+        onExtend={handleExtend}
         killing={killing}
+        extending={extending}
       />
 
       <ConfirmDialog

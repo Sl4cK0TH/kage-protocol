@@ -1,4 +1,5 @@
-from typing import Generator
+from contextlib import contextmanager
+from typing import Generator, Iterator
 from sqlmodel import SQLModel, Session, create_engine
 from sqlalchemy import Engine
 from app.core.config import get_settings
@@ -27,6 +28,21 @@ def get_session() -> Generator[Session, None, None]:
     Yield a SQLModel session and guarantee cleanup via try/finally.
 
     This prevents connection leaks when used as a FastAPI dependency.
+    """
+    session = Session(_get_engine())
+    try:
+        yield session
+    finally:
+        session.close()
+
+
+@contextmanager
+def session_scope() -> Iterator[Session]:
+    """
+    Provide a session outside of FastAPI's dependency injection.
+
+    Used by background tasks (the Reaper) and streaming endpoints that don't
+    run inside a normal request/response cycle.
     """
     session = Session(_get_engine())
     try:

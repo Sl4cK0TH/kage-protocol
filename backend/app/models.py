@@ -22,6 +22,19 @@ class GlobalSettings(SQLModel, table=True):
     port_range_end: int = 40000
 
 
+class ContainerExpiry(SQLModel, table=True):
+    """
+    Mutable expiry override for a spawned container.
+
+    Docker labels are immutable once a container is created, so the original
+    ``expires_at`` label can't be changed. To support extending a clone's TTL
+    we track the authoritative expiry here; the label remains as a fallback
+    (and for backward compatibility) when no override row exists.
+    """
+    container_id: str = Field(primary_key=True)
+    expires_at: int
+
+
 class ChallengeCreate(SQLModel):
     name: str
     description: str = ""
@@ -148,6 +161,18 @@ class SpawnRequest(SQLModel):
     platform: str | None = None       # "ctfd", "tryhackme", "custom", etc.
     team_id: str | None = None
     player_id: str | None = None
+
+
+class ExtendRequest(SQLModel):
+    """Body for extending a running clone's TTL."""
+    minutes: int = 30
+
+    @field_validator("minutes")
+    @classmethod
+    def validate_minutes(cls, v: int) -> int:
+        if v < 1 or v > 1440:
+            raise ValueError("Extension must be between 1 and 1440 minutes (24h)")
+        return v
 
 
 class AuditLog(SQLModel, table=True):
