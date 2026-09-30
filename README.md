@@ -2,151 +2,205 @@
 
 [![CI](https://github.com/Sl4cK0TH/kage-protocol/actions/workflows/ci.yml/badge.svg)](https://github.com/Sl4cK0TH/kage-protocol/actions/workflows/ci.yml)
 
-## Overview
+A self-hosted control plane for **on-demand CTF challenge containers**. Admins define Docker-based challenges, players (or your CTF platform) spawn isolated instances through a small API, and a background reaper tears them down when their time is up — all watched from a live, cyberpunk-styled command center.
 
-The Kage Protocol is a production-grade CTF challenge infrastructure dashboard. It lets administrators define Docker-based challenges ("Jutsus"), spawn isolated containers ("Shadow Clones"), and manage lifecycle policies ("Chakra Control") from a cyberpunk command center UI.
+**Platform-agnostic:** works with CTFd, a TryHackMe room, a workshop `curl` command, or any platform that can make an HTTP request.
 
-**Platform-agnostic** — integrates with CTFd, TryHackMe (self-hosted), or any custom platform via a simple API.
+## Terminology
 
-## Use Case
+| In the UI | Means |
+|---|---|
+| **Jutsu** | A challenge definition: Docker image, internal ports, RAM/CPU limits |
+| **Shadow Clone** | A running container spawned from a Jutsu |
+| **The Reaper** | Background task that removes clones whose TTL has expired |
+| **Chakra Control** | Global settings: default TTL and the host-port range |
 
-- Define challenge images, internal ports, RAM/CPU limits.
-- Spawn containers on demand from an external platform using a protected API key.
-- Monitor running containers, inspect logs, and force-kill instances.
-- Automatically reap expired containers with a background task (The Reaper).
+## Features
+
+- **Jutsu Library** — create, edit, and delete challenges; spawn a clone for testing; **pull an image** with live per-layer progress.
+- **Active Clones** — a live table of every clone with its Jutsu, ports, and countdown. Click one to open a detail drawer with **live-tailing logs**, live CPU/memory, copyable connection addresses, **extend TTL** (+15/+30/+60 min), and kill.
+- **Live dashboard** — updates are pushed over Server-Sent Events (with automatic fallback to polling), with trend sparklines and an activity feed of spawns, kills, extensions, reaps, and admin actions.
+- **Audit Log** — every admin, platform, and Reaper action, with pagination, an action filter, whole-log summary counts, and automatic retention.
+- **Public API** — API-key-protected spawn/stop endpoints for CTF platforms, rate-limited per key and client IP.
+- **The Reaper** — checks every 60 seconds and honors TTL extensions.
+- Responsive layout with a collapsible sidebar for smaller screens.
 
 ## Architecture
 
-- Frontend: Next.js (App Router), React, Tailwind CSS
-- Backend: FastAPI (Python)
-- Database: SQLite (SQLModel)
-- Infrastructure: Docker SDK (via Docker socket proxy for security)
+```mermaid
+flowchart LR
+    admin["Admin browser<br/>Next.js dashboard"] -- "REST + SSE<br/>session cookie + CSRF" --> api
+    platform["CTF platform<br/>CTFd · THM page · curl"] -- "X-Kage-Key" --> api
+    subgraph compose["docker compose"]
+        api["FastAPI backend<br/>+ The Reaper"] --> db[("SQLite")]
+        api -- "tcp:2375" --> proxy["docker-socket-proxy"]
+    end
+    proxy --> daemon["Docker daemon"]
+    daemon --> clones["Shadow Clones<br/>kage-challenges network"]
+    players["Players"] --> clones
+```
+
+- **Frontend:** Next.js 14 (App Router), React 18, Tailwind CSS, TypeScript
+- **Backend:** FastAPI (Python 3.11), SQLModel on SQLite
+- **Infrastructure:** Docker SDK, reached only through a [Tecnativa docker-socket-proxy](https://github.com/Tecnativa/docker-socket-proxy) — the backend never mounts the raw Docker socket
 
 ## Repository Layout
 
-- backend/ - FastAPI API, Docker SDK integration, SQLite models
-- frontend/ - Next.js admin dashboard
-- docker-compose.yml - backend + Docker socket proxy
+```text
+backend/
+  app/            FastAPI app: routes/, services/, core/ (config, auth, CSRF, rate limit), reaper.py
+  tests/          pytest suite (runs against an in-memory fake Docker daemon)
+  scripts/        hash_password.py, spawn_test.sh
+  INTEGRATION.md  Public API and platform integration guide
+frontend/         Next.js admin dashboard (see frontend/README.md)
+docker-compose.yml  Backend + Docker socket proxy
+.github/workflows/  CI
+```
 
 ## Prerequisites
 
-- Docker + Docker Compose
-- Node.js 18+ (for frontend)
-- Python 3.11+ (for local backend dev)
+- Docker and Docker Compose
+- Node.js **18.17+** (for the frontend)
+- Python **3.11** for local backend development and tests — the pinned dependencies don't build on Python 3.13+
 
-## Installation (Quick Start)
+## Quick Start
 
-1) Generate your admin password hash:
+**1. Generate the admin password hash**
 
 ```bash
 pip install bcrypt
-python backend/scripts/hash_password.py your_password_here
+python backend/scripts/hash_password.py 'your_password_here'
 ```
 
-2) Configure the backend:
+**2. Configure the backend**
 
 ```bash
 cp backend/.env.example backend/.env
-# Edit backend/.env — set ADMIN_PASSWORD_HASH, KAGE_API_KEY, SESSION_SECRET
 ```
 
-3) Start the backend (Docker):
+Edit `backend/.env` and set `ADMIN_USERNAME`, `KAGE_API_KEY`, `SESSION_SECRET` (long random strings for the last two), and paste the `ADMIN_PASSWORD_HASH=...` line printed in step 1.
+
+> [!IMPORTANT]
+> Keep the **single quotes** around the hash: `ADMIN_PASSWORD_HASH='$2b$12$...'`.
+> Docker Compose interpolates `$VAR` in env files, so an unquoted hash is silently truncated and login always fails.
+
+**3. Start the backend**
 
 ```bash
 docker compose up --build
 ```
 
-4) Configure and start the frontend:
+The API listens on `http://localhost:8000`. Check `http://localhost:8000/api/health` — it should report `"status": "healthy"`.
+
+**4. Start the frontend**
 
 ```bash
 cd frontend
-cp .env.example .env
+cp .env.example .env   # NEXT_PUBLIC_API_BASE must be reachable from your browser
 npm install
 npm run dev
 ```
 
-5) Open the dashboard:
+**5. Log in** at `http://localhost:3000` with the admin credentials from step 2.
 
-```text
-http://localhost:3000
-```
+Then add a Jutsu (pull its image first if it isn't on the host), spawn a clone, and point your platform at the public API — see [backend/INTEGRATION.md](backend/INTEGRATION.md).
 
-## Dependencies
+## Using the Dashboard
 
-Backend:
-- fastapi
-- uvicorn
-- sqlmodel / sqlalchemy
-- docker (Python SDK)
-- itsdangerous
-- bcrypt
-
-Frontend:
-- next
-- react
-- tailwindcss
-- typescript
-
-## Commands
-
-Backend:
-- `docker compose up --build` - run backend in Docker (recommended)
-- `uvicorn app.main:app --reload` - run backend locally
-- `pip install -r requirements-dev.txt && pytest` - run the backend test suite (Python 3.11, from `backend/`)
-
-Frontend (from frontend/):
-- `npm run dev` - start the development server
-- `npm run build` - build for production
-- `npm run start` - run the production build
+| Page | What you can do |
+|---|---|
+| **Dashboard** | Live clone/CPU/memory telemetry with sparklines and the recent-activity feed. The **Live / Polling** badge shows whether the SSE stream is connected. |
+| **Jutsu Library** | Manage challenges. **Pull** downloads the Jutsu's image with streaming progress; **Spawn** starts a clone using the default TTL. |
+| **Active Clones** | Click a row for the detail drawer: live logs, per-clone CPU/memory, port mappings with copy buttons, TTL extension, and kill. |
+| **Audit Log** | Browse all events 50 at a time, filter by action, and see counts across the whole log. |
+| **Settings** | Default TTL (1–1440 minutes) and the host-port range clones are published on (1024–65535). |
+| **Documentation** | In-app API reference and copy-ready integration snippets. |
 
 ## Configuration
 
-Backend (.env):
+### Backend (`backend/.env`)
 
-| Variable | Required | Description |
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `ADMIN_USERNAME` | ✅ | | Admin login username |
+| `ADMIN_PASSWORD_HASH` | ✅ | | bcrypt hash of the admin password (single-quoted — see Quick Start) |
+| `KAGE_API_KEY` | ✅ | | Key platforms send as `X-Kage-Key` on the public API |
+| `SESSION_SECRET` | ✅ | | Secret used to sign session cookies |
+| `SESSION_COOKIE_NAME` | | `kage_session` | Session cookie name (keep in sync with the frontend) |
+| `SESSION_MAX_AGE_SECONDS` | | `3600` | Admin session lifetime |
+| `COOKIE_SECURE` | | `false` | Set `true` when served over HTTPS |
+| `CORS_ORIGINS` | | `http://localhost:3000` | Comma-separated origins allowed to call the API (the dashboard's origin) |
+| `DB_URL` | | `sqlite:///./data/kage.db` | Database URL |
+| `PUBLIC_HOST` | | `localhost` | Hostname returned to players in spawn responses |
+| `CHALLENGE_NETWORK` | | `kage-challenges` | Docker network clones are attached to (created on startup) |
+| `SPAWN_RATE_LIMIT_COUNT` | | `30` | Max spawn (and, separately, stop) requests per window, per API key + client IP |
+| `SPAWN_RATE_LIMIT_WINDOW_SECONDS` | | `60` | Rate-limit window |
+| `AUDIT_RETENTION_DAYS` | | `90` | Delete audit entries older than this (checked hourly); `0` keeps them forever |
+| `LOG_LEVEL` | | `INFO` | Python log level |
+| `JSON_LOGS` | | `false` | Emit JSON-formatted logs |
+| `DEFAULT_CPU_LIMIT` | | `0.5` | Currently unused — each Jutsu's own CPU limit applies (default 0.5 cores) |
+
+### Frontend (`frontend/.env`)
+
+| Variable | Default | Description |
 |---|---|---|
-| `ADMIN_USERNAME` | ✅ | Admin login username |
-| `ADMIN_PASSWORD_HASH` | ✅ | bcrypt hash of admin password |
-| `KAGE_API_KEY` | ✅ | API key for public spawn endpoint |
-| `SESSION_SECRET` | ✅ | Cookie signing secret |
-| `CORS_ORIGINS` | | Comma-separated allowed origins |
-| `DB_URL` | | SQLite URL (default: `sqlite:///./data/kage.db`) |
-| `PUBLIC_HOST` | | Host returned in spawn responses |
-| `CHALLENGE_NETWORK` | | Docker network for containers (default: `kage-challenges`) |
-| `DEFAULT_CPU_LIMIT` | | CPU cores per container (default: `0.5`) |
-| `LOG_LEVEL` | | Python log level (default: `INFO`) |
-| `JSON_LOGS` | | Use JSON log format (default: `false`) |
-| `SPAWN_RATE_LIMIT_COUNT` | | Max spawns per window (default: `30`) |
-| `SPAWN_RATE_LIMIT_WINDOW_SECONDS` | | Rate limit window (default: `60`) |
-| `AUDIT_RETENTION_DAYS` | | Delete audit entries older than this; `0` keeps them forever (default: `90`) |
+| `NEXT_PUBLIC_API_BASE` | `http://localhost:8000` | Backend URL, as reachable from the admin's browser |
+| `NEXT_PUBLIC_SESSION_COOKIE_NAME` | `kage_session` | Must match the backend's `SESSION_COOKIE_NAME` |
 
-Frontend (.env):
-- `NEXT_PUBLIC_API_BASE` - FastAPI base URL
-- `NEXT_PUBLIC_SESSION_COOKIE_NAME` - admin cookie name
+## API Overview
+
+- **Public API** (`X-Kage-Key`): `POST /api/spawn/{challenge_id}` and `DELETE /api/spawn/{container_id}` — documented in full in [backend/INTEGRATION.md](backend/INTEGRATION.md).
+- **Admin API** (`/api/admin/*`): used by the dashboard; requires the HTTP-only session cookie, plus the `X-CSRF-Token` header on state-changing requests. Live data is served as Server-Sent Events from `/api/admin/stream`, `/api/admin/docker/containers/{id}/logs/stream`, and `/api/admin/docker/images/pull/stream`.
+- **Health:** `GET /api/health` (unauthenticated) reports Docker and database connectivity.
+- Interactive OpenAPI docs are served by FastAPI at `/docs`.
 
 ## Security
 
-- **Docker Socket Proxy**: The backend never mounts the raw Docker socket. A Tecnativa socket proxy restricts API access to only the endpoints Kage needs.
-- **Password Hashing**: Admin password is stored as a bcrypt hash. Plaintext is never stored.
-- **CSRF Protection**: Double-submit cookie pattern protects all state-mutating admin endpoints.
-- **HTTP-only Cookies**: Session cookies are HttpOnly and SameSite=Lax.
-- **API Key Auth**: Public spawn endpoint requires `X-Kage-Key` header.
-- **Container Isolation**: Spawned containers run on a dedicated Docker network with CPU and RAM limits.
-- **Rate Limiting**: Spawn requests are rate-limited per API key + client IP.
-- **Audit Logging**: All admin and spawn actions are logged with timestamps and IP addresses.
+- **Docker socket proxy** — the backend talks to Docker only through a proxy that denies exec, volumes, builds, swarm, secrets, and other unneeded APIs.
+- **Scoped container operations** — logs, stop, and TTL changes only work on containers Kage spawned (identified by label). Any other container ID or name returns 404, even with a valid key or admin session.
+- **Admin auth** — bcrypt-hashed password, signed HTTP-only `SameSite=Lax` session cookie, and double-submit CSRF protection on every state-changing admin request.
+- **Container isolation** — clones run on a dedicated network with per-Jutsu RAM and CPU limits.
+- **Rate limiting** — public spawn and stop requests are limited per API key + client IP.
+- **Audit logging** — admin, platform, and Reaper actions are recorded with timestamps and client IPs.
+
+> [!WARNING]
+> The API key is a **single shared secret**. Anything that embeds it client-side (for example the TryHackMe landing-page snippet) exposes it to players, who can then spawn and stop clones directly. Keep the key server-side wherever possible — see [backend/INTEGRATION.md](backend/INTEGRATION.md#security-notes).
+
+## Deployment Notes
+
+- **Serve the dashboard and API from the same site** (e.g. `kage.example.com` and `api.kage.example.com`). The session cookie is `SameSite=Lax`, so a dashboard on an unrelated domain won't send it.
+- **HTTPS:** set `COOKIE_SECURE=true` and put both services behind TLS.
+- **Reverse proxies and SSE:** the stream endpoints send `X-Accel-Buffering: no`, which nginx honors. If the dashboard badge shows **Polling** instead of **Live**, a proxy or CDN is buffering responses — disable buffering for `/api/admin/*stream*`.
+- **Client IPs behind a proxy:** uvicorn only trusts `X-Forwarded-For` from `127.0.0.1` by default. Behind a separate proxy container, every request appears to come from the proxy — so rate limiting and audit IPs collapse to one address — unless uvicorn is started with `--forwarded-allow-ips` set to the proxy's address.
+- **Server-side platform integrations** (such as CTFd) send every spawn from one IP, so the rate limit applies to the platform as a whole. Raise `SPAWN_RATE_LIMIT_COUNT` to fit your expected burst of simultaneous starts.
+- **Schema changes:** tables are created automatically on startup, but existing tables aren't migrated. New tables appear on their own; changes to existing columns need a manual migration.
+
+## Commands
+
+Backend (from `backend/`):
+
+- `docker compose up --build` — run the backend and socket proxy (from the repo root; recommended)
+- `uvicorn app.main:app --reload` — run the backend locally (needs a reachable Docker daemon)
+- `pip install -r requirements-dev.txt && pytest` — run the test suite (Python 3.11)
+
+Frontend (from `frontend/`):
+
+- `npm run dev` — development server
+- `npm run build` / `npm run start` — production build and server
+- `npx tsc --noEmit` — type-check (what CI runs)
 
 ## Testing & CI
 
-The backend suite (`backend/tests/`) runs against an in-memory fake of the Docker daemon, so it needs no Docker access. It covers auth/CSRF, Jutsu and settings validation, spawn/kill/extend flows, the Reaper, audit pagination and retention, and the SSE streams.
+The backend suite (`backend/tests/`) runs the real `DockerService` logic against an in-memory fake Docker daemon, so it needs no Docker access and runs in a couple of seconds. It covers auth and CSRF, Jutsu and settings validation, spawn/stop/extend flows (including container-ownership checks), the Reaper, audit pagination and retention, and the SSE streams.
 
 GitHub Actions (`.github/workflows/ci.yml`) runs on every push to `master` and on pull requests: backend tests on Python 3.11, a frontend type-check and production build, and a backend Docker image build.
 
-## Platform Integration
+## Known Limitations
 
-See [backend/INTEGRATION.md](backend/INTEGRATION.md) for integration guides covering:
-- CTFd (dynamic challenge handler)
-- TryHackMe (self-hosted landing page)
-- Generic webhook / curl
+- One shared API key for all platforms. Per-platform keys that can be rotated and revoked are planned.
+- Next.js 14.2.35 still has advisories that are only fixed in Next 15/16; an upgrade is planned.
+- The rate limiter is in memory, so limits reset on restart and aren't shared across multiple backend instances.
+- The dashboard's sparkline history lives in the browser and resets on reload.
 
 ## License
 

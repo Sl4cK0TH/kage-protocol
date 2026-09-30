@@ -20,10 +20,12 @@ def main() -> None:
     plaintext = sys.argv[1].encode("utf-8")
     hashed = bcrypt.hashpw(plaintext, bcrypt.gensalt(rounds=12))
     hash_str = hashed.decode("utf-8")
-    docker_hash = hash_str.replace("$", "$$")
     print(f"\nGenerated bcrypt hash:\n{hash_str}\n")
-    print("For Docker Compose, paste this value into your .env as:")
-    print(f"ADMIN_PASSWORD_HASH={docker_hash}")
+    # Keep the single quotes: Docker Compose interpolates `$VAR` in env files
+    # (which would silently truncate the hash), and python-dotenv would not
+    # un-escape a `$$` form. Single-quoted values work for both.
+    print("Paste this line into backend/.env (keep the single quotes):")
+    print(f"ADMIN_PASSWORD_HASH='{hash_str}'")
 
 
 if __name__ == "__main__":

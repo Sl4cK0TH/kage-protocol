@@ -1,69 +1,80 @@
-# The Kage Protocol Frontend
+# The Kage Protocol — Frontend
 
-## Overview
+The admin dashboard for The Kage Protocol: a cyberpunk-styled command center for managing **Jutsus** (challenge definitions), watching **Shadow Clones** (running containers) in real time, and configuring **Chakra Control** (global spawn settings).
 
-The Kage Protocol Frontend is the admin dashboard for a CTF challenge infrastructure. It provides a cyberpunk command center to manage "Jutsus" (challenge definitions), "Shadow Clones" (running containers), and "Chakra Control" (global spawn settings).
+See the [root README](../README.md) for the full system, backend setup, and configuration.
 
-## Use Case
+## Pages
 
-- Admins define Docker-based challenges and set runtime limits.
-- The platform spawns isolated containers on-demand for players via the backend API.
-- Admins monitor live containers, view logs, and kill instances.
+| Route | Page |
+|---|---|
+| `/login` | Admin sign-in |
+| `/dashboard` | Live telemetry (clones, CPU, memory) with sparklines and the recent-activity feed |
+| `/dashboard/jutsus` | Jutsu Library — manage challenges, pull images with live progress, spawn test clones |
+| `/dashboard/clones` | Active Clones — live table plus a detail drawer with streaming logs, stats, port copy, TTL extension, and kill |
+| `/dashboard/audit` | Audit Log — paginated, filterable by action, with whole-log summary counts |
+| `/dashboard/settings` | Default TTL and host-port range |
+| `/dashboard/docs` | In-app API reference and copy-ready integration snippets |
 
-## Installation Guide
+## Getting Started
 
-1) Install dependencies:
+Requires **Node.js 18.17+** and a running backend.
 
 ```bash
 npm install
-```
-
-2) Create a local environment file:
-
-```bash
 cp .env.example .env
-```
-
-3) Start the dev server:
-
-```bash
 npm run dev
 ```
 
-4) Open the app:
+Then open `http://localhost:3000` and sign in with the admin credentials configured on the backend.
 
-```text
-http://localhost:3000
-```
+## Configuration
 
-## Dependencies
+Set in `.env`:
 
-- Next.js (App Router)
-- React
-- Tailwind CSS
-- TypeScript
+| Variable | Default | Description |
+|---|---|---|
+| `NEXT_PUBLIC_API_BASE` | `http://localhost:8000` | Backend URL, as reachable from the admin's browser |
+| `NEXT_PUBLIC_SESSION_COOKIE_NAME` | `kage_session` | Must match the backend's `SESSION_COOKIE_NAME` |
+
+The backend's `CORS_ORIGINS` must include this app's origin (e.g. `http://localhost:3000`).
 
 ## Commands
 
-- `npm run dev` - start the development server
-- `npm run build` - build for production
-- `npm run start` - run the production build
-- `npm run lint` - run Next.js lint checks
+| Command | Purpose |
+|---|---|
+| `npm run dev` | Development server |
+| `npm run build` | Production build |
+| `npm run start` | Serve the production build |
+| `npx tsc --noEmit` | Type-check (runs in CI) |
 
-## Basic Configuration
+`npm run lint` is defined, but ESLint isn't configured yet — running it starts Next.js's interactive ESLint setup.
 
-Set these values in `.env`:
+## How It Talks to the Backend
 
-- `NEXT_PUBLIC_API_BASE` - base URL for the FastAPI backend (default: `http://localhost:8000`)
-- `NEXT_PUBLIC_SESSION_COOKIE_NAME` - cookie name used by the admin session (default: `kage_session`)
+- **Auth:** the backend sets an HTTP-only session cookie on login plus a readable `kage_csrf` cookie. `src/lib/api.ts` sends cookies on every request (`credentials: "include"`) and adds the `X-CSRF-Token` header to state-changing requests. A `401` redirects to `/login`.
+- **Route guard:** `middleware.ts` redirects `/dashboard/*` to `/login` when no session cookie is present. It only checks that the cookie exists — the backend validates it on every API call.
+- **Live data:** the Dashboard and Active Clones pages subscribe to `/api/admin/stream` (Server-Sent Events) through `useSnapshotStream`, falling back to polling if the stream can't connect. The badge in the page header shows which mode is active. Container logs (`useLogStream`) and image pulls also stream over SSE.
+- **Same-site requirement:** the session cookie is `SameSite=Lax`, so serve the dashboard and API from the same site (e.g. `kage.example.com` and `api.kage.example.com`).
 
 ## Project Structure
 
-- `src/app` - app router pages and layouts
-- `src/components` - shared UI components
-- `src/lib` - API client and types
+```text
+src/
+  app/                      App Router pages (login, dashboard/*)
+  components/
+    ui/                     Primitives: button, card, dialog, drawer, table, sparkline, …
+    clone-detail-drawer.tsx Active Clones detail panel
+    pull-image-dialog.tsx   Streaming image-pull dialog
+    dashboard-shell.tsx     Layout with the collapsible mobile sidebar
+    icons.tsx               Dependency-free inline SVG icon set
+  lib/
+    api.ts                  Fetch wrapper (cookies, CSRF, error formatting)
+    useSnapshotStream.ts    Live container/stats stream with polling fallback
+    useLogStream.ts         Live container log stream
+    integration-snippets.ts Snippets shown on the Documentation page
+    types.ts                Shared API types
+middleware.ts               Session-cookie route guard
+```
 
-## Notes
-
-- The admin dashboard relies on HTTP-only cookies set by the backend `/api/auth/login` route.
-- The backend must allow CORS for the frontend origin.
+`src/lib/integration-snippets.ts` mirrors the code blocks in `backend/INTEGRATION.md` — update both together.
