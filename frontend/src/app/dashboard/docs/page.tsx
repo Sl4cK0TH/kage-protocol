@@ -11,6 +11,7 @@ import {
 import { copyToClipboard } from "@/lib/utils";
 import { toast } from "@/lib/toast";
 import { Button, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui";
+import { PageHeader } from "@/components/page-header";
 
 const GUIDE_URL = "https://github.com/Sl4cK0TH/kage-protocol/blob/master/backend/INTEGRATION.md";
 
@@ -92,10 +93,7 @@ export default function DocsPage() {
   return (
     <div className="space-y-8">
       <div className="space-y-3">
-        <div>
-          <h2 className="font-display text-2xl text-white">Documentation</h2>
-          <p className="text-sm text-zinc-500">Connect your CTF platform and operate the command center.</p>
-        </div>
+        <PageHeader title="Documentation" description="Connect your CTF platform and operate the command center." />
         <nav className="flex flex-wrap gap-2" aria-label="Documentation sections">
           {SECTIONS.map((section) => (
             <a
@@ -123,7 +121,7 @@ export default function DocsPage() {
             The Reaper checks every 60 seconds, and honors extensions made from Active Clones.
           </Step>
         </ol>
-        <p className="text-xs text-zinc-500">
+        <p className="text-xs text-muted">
           This dashboard talks to the backend at <Code>{API_BASE}</Code>. Platforms may need a different address, such
           as an internal Docker hostname.
         </p>
@@ -136,12 +134,12 @@ export default function DocsPage() {
         </p>
 
         <Endpoint method="POST" path="/api/spawn/{challenge_id}" summary="Start a clone of a Jutsu.">
-          <p className="text-xs text-zinc-500">
+          <p className="text-xs text-muted">
             Optional JSON body, recorded in the audit log:{" "}
             <Code>{`{ "platform": "ctfd", "team_id": "team-42", "player_id": "user-7" }`}</Code>
           </p>
           <CodeBlock code={SPAWN_RESPONSE} label="200 response" />
-          <ul className="space-y-1 text-xs text-zinc-500">
+          <ul className="space-y-1 text-xs text-muted">
             <li>
               <Code>port</Code> is the host port for the Jutsu&apos;s first internal port; <Code>port_map</Code> lists
               them all.
@@ -150,18 +148,18 @@ export default function DocsPage() {
               <Code>expires_at</Code> is a Unix timestamp (seconds), based on the default TTL in Settings.
             </li>
           </ul>
-          <StatusTable rows={SPAWN_ERRORS} />
+          <StatusTable rows={SPAWN_ERRORS} label="Spawn status codes" />
         </Endpoint>
 
         <Endpoint method="DELETE" path="/api/spawn/{container_id}" summary="Stop a clone early.">
-          <p className="text-xs text-zinc-500">
+          <p className="text-xs text-muted">
             Accepts the container_id from the spawn response (a short ID or container name also works). Only Kage
             clones can be stopped. Returns <Code>{`{ "status": "success", "message": "Challenge terminated." }`}</Code>
           </p>
-          <StatusTable rows={STOP_ERRORS} />
+          <StatusTable rows={STOP_ERRORS} label="Stop status codes" />
         </Endpoint>
 
-        <p className="text-xs text-zinc-500">
+        <p className="text-xs text-muted">
           Both endpoints are rate-limited per API key + client IP, with separate limits for spawning and stopping.{" "}
           <Code>GET /api/health</Code> (no key needed) reports Docker and database connectivity.
         </p>
@@ -188,7 +186,7 @@ export default function DocsPage() {
         <div className="space-y-3">
           <div>
             <p className="text-sm text-zinc-200">{snippet.label}</p>
-            <p className="text-xs text-zinc-500">{snippet.description}</p>
+            <p className="text-xs text-muted">{snippet.description}</p>
           </div>
           <CodeBlock code={snippet.code} label={snippet.language} />
           {snippet.warning ? (
@@ -197,9 +195,9 @@ export default function DocsPage() {
             </p>
           ) : null}
         </div>
-        <p className="text-xs text-zinc-500">
+        <p className="text-xs text-muted">
           The full guide — including multi-port challenges and rate-limit sizing — is in{" "}
-          <a href={GUIDE_URL} target="_blank" rel="noreferrer" className="text-emerald-300 hover:underline">
+          <a href={GUIDE_URL} target="_blank" rel="noreferrer" className="text-emerald-300 underline underline-offset-4 hover:text-emerald-200">
             backend/INTEGRATION.md
           </a>
           .
@@ -211,7 +209,7 @@ export default function DocsPage() {
           {DASHBOARD_GUIDE.map(([page, text]) => (
             <div key={page} className="rounded-lg border border-zinc-900 bg-zinc-900/30 p-4">
               <dt className="text-sm text-zinc-100">{page}</dt>
-              <dd className="mt-1 text-xs leading-relaxed text-zinc-500">{text}</dd>
+              <dd className="mt-1 text-xs leading-relaxed text-muted">{text}</dd>
             </div>
           ))}
         </dl>
@@ -221,7 +219,7 @@ export default function DocsPage() {
         <p className="text-sm text-zinc-400">
           Set in <Code>backend/.env</Code>; restart the backend to apply changes. The full list is in the README.
         </p>
-        <div className="overflow-x-auto">
+        <div tabIndex={0} role="region" aria-label="Configuration variables" className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
@@ -266,7 +264,7 @@ export default function DocsPage() {
           {TROUBLESHOOTING.map(([symptom, fix]) => (
             <div key={symptom} className="grid gap-1 py-3 sm:grid-cols-[14rem_1fr] sm:gap-4">
               <dt className="text-sm text-zinc-200">{symptom}</dt>
-              <dd className="text-xs leading-relaxed text-zinc-500">{fix}</dd>
+              <dd className="text-xs leading-relaxed text-muted">{fix}</dd>
             </div>
           ))}
         </dl>
@@ -278,7 +276,7 @@ export default function DocsPage() {
 function Section({ id, title, children }: { id: string; title: string; children: React.ReactNode }) {
   return (
     <section id={id} className="scroll-mt-6 space-y-4 rounded-xl border border-zinc-900 bg-zinc-950/70 p-6">
-      <h3 className="text-xs uppercase tracking-[0.2em] text-zinc-500">{title}</h3>
+      <h2 className="font-display text-lg font-semibold text-zinc-100">{title}</h2>
       {children}
     </section>
   );
@@ -321,9 +319,9 @@ function Endpoint({
   );
 }
 
-function StatusTable({ rows }: { rows: [string, string][] }) {
+function StatusTable({ rows, label }: { rows: [string, string][]; label: string }) {
   return (
-    <div className="overflow-x-auto">
+    <div tabIndex={0} role="region" aria-label={label} className="overflow-x-auto">
       <Table>
         <TableHeader>
           <TableRow>
@@ -357,12 +355,12 @@ function CodeBlock({ code, label }: { code: string; label: string }) {
   return (
     <div className="overflow-hidden rounded-lg border border-zinc-800 bg-zinc-950">
       <div className="flex items-center justify-between border-b border-zinc-900 px-4 py-1.5">
-        <span className="font-mono text-xs text-zinc-600">{label}</span>
-        <Button size="sm" variant="ghost" className="h-7 px-2" onClick={copy}>
+        <span className="font-mono text-xs text-muted">{label}</span>
+        <Button size="sm" variant="ghost" className="h-8 px-3" onClick={copy} aria-label={`Copy ${label} snippet`}>
           Copy
         </Button>
       </div>
-      <pre className="overflow-x-auto p-4 text-xs leading-relaxed text-zinc-200">
+      <pre tabIndex={0} aria-label={`${label} code`} className="overflow-x-auto p-4 text-xs leading-relaxed text-zinc-200">
         <code>{code}</code>
       </pre>
     </div>

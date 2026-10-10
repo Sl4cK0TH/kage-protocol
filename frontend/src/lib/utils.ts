@@ -1,7 +1,13 @@
 import { clsx, type ClassValue } from "clsx";
+import { twMerge } from "tailwind-merge";
 
+/**
+ * Join class names, letting later Tailwind utilities override conflicting
+ * earlier ones (e.g. a caller's `text-amber-300` beats a component's default
+ * `text-zinc-100`). Plain clsx left the winner to stylesheet order.
+ */
 export function cn(...inputs: ClassValue[]) {
-  return clsx(inputs);
+  return twMerge(clsx(inputs));
 }
 
 /**

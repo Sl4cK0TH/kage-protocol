@@ -18,6 +18,7 @@ import {
   TableRow
 } from "@/components/ui";
 import { toast } from "@/lib/toast";
+import { PageHeader } from "@/components/page-header";
 
 const PAGE_SIZE = 50;
 
@@ -117,12 +118,9 @@ export default function AuditPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="font-display text-2xl text-white">Audit Log</h2>
-        <p className="text-sm text-zinc-500">Complete record of admin, spawn, and Reaper events.</p>
-      </div>
+      <PageHeader title="Audit Log" description="Complete record of admin, platform, and Reaper events." />
 
-      <section className="grid gap-4 sm:grid-cols-2 md:grid-cols-4">
+      <section aria-label="Event totals" className="grid gap-4 sm:grid-cols-2 md:grid-cols-4">
         <StatCard label="Total Events" value={summary?.total} />
         <StatCard label="Spawns" value={summary && count("spawn", "admin_spawn")} />
         <StatCard label="Kills" value={summary && count("kill_container", "public_kill")} />
@@ -130,7 +128,7 @@ export default function AuditPage() {
       </section>
 
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <label className="flex items-center gap-2 text-xs uppercase tracking-[0.2em] text-zinc-500">
+        <label className="flex items-center gap-2 text-xs uppercase tracking-[0.2em] text-muted">
           <span>Action</span>
           <select
             className="rounded-md border border-zinc-800 bg-zinc-950/70 px-3 py-2 text-sm normal-case tracking-normal text-zinc-100"
@@ -148,7 +146,7 @@ export default function AuditPage() {
             ))}
           </select>
         </label>
-        <div className="flex items-center gap-3 text-xs text-zinc-500">
+        <div className="flex items-center gap-3 text-xs text-muted">
           <span>
             {firstShown}–{lastShown} of {total}
           </span>
@@ -166,7 +164,8 @@ export default function AuditPage() {
         </div>
       </div>
 
-      <div className="overflow-x-auto rounded-xl border border-zinc-900 bg-zinc-950/70">
+      {/* Focusable so keyboard users can scroll the table sideways on small screens. */}
+      <div tabIndex={0} role="region" aria-label="Audit events" className="overflow-x-auto rounded-xl border border-zinc-900 bg-zinc-950/70">
         <Table>
           <TableHeader>
             <TableRow>
@@ -193,7 +192,7 @@ export default function AuditPage() {
             ) : null}
             {!loading && !entries.length ? (
               <TableRow>
-                <TableCell colSpan={6} className="text-zinc-500">
+                <TableCell colSpan={6} className="text-muted">
                   {action ? `No "${action}" events recorded.` : "No audit events recorded yet."}
                 </TableCell>
               </TableRow>
@@ -217,8 +216,8 @@ export default function AuditPage() {
                   <TableCell className="max-w-[140px] truncate font-mono text-xs text-zinc-400">
                     {entry.target}
                   </TableCell>
-                  <TableCell className="text-xs text-zinc-500">{(entry.meta?.ip as string) || "—"}</TableCell>
-                  <TableCell className="max-w-[200px] truncate text-xs text-zinc-500">
+                  <TableCell className="text-xs text-muted">{(entry.meta?.ip as string) || "—"}</TableCell>
+                  <TableCell className="max-w-[200px] truncate text-xs text-muted">
                     {formatMeta(entry.meta)}
                   </TableCell>
                 </TableRow>

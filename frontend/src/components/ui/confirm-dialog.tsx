@@ -1,8 +1,7 @@
 "use client";
 
-import type React from "react";
 import { Button } from "./button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "./dialog";
 
 interface ConfirmDialogProps {
   open: boolean;
@@ -15,6 +14,10 @@ interface ConfirmDialogProps {
   loading?: boolean;
 }
 
+/**
+ * Confirmation for irreversible actions. Focus starts on Cancel so an
+ * accidental Enter doesn't confirm a destructive action.
+ */
 export function ConfirmDialog({
   open,
   onOpenChange,
@@ -26,18 +29,18 @@ export function ConfirmDialog({
   loading = false
 }: ConfirmDialogProps) {
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+    <Dialog open={open} onOpenChange={(next) => !loading && onOpenChange(next)}>
+      <DialogContent className="mx-auto max-w-md">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
-        <p className="text-sm text-zinc-400">{description}</p>
-        <div className="flex justify-end gap-2 pt-2">
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
+        <div className="flex justify-end gap-2 pt-6">
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={loading} data-autofocus>
             Cancel
           </Button>
-          <Button variant={variant} onClick={onConfirm} disabled={loading}>
-            {loading ? "Processing..." : confirmLabel}
+          <Button variant={variant} onClick={onConfirm} loading={loading}>
+            {confirmLabel}
           </Button>
         </div>
       </DialogContent>

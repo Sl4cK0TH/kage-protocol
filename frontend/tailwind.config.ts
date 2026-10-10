@@ -10,7 +10,11 @@ const config: Config = {
         slate: "#1a222b",
         neon: "#62f7c6",
         electric: "#4cc9ff",
-        ember: "#ff5d5d"
+        ember: "#ff5d5d",
+        // Tertiary text (labels, timestamps, hints). Clears WCAG AA 4.5:1 on
+        // every surface it sits on (5.25:1 even on zinc-900 tiles) while staying
+        // visibly dimmer than secondary zinc-400 text. zinc-500 failed at ~4:1.
+        muted: "#8b8b95"
       },
       boxShadow: {
         glow: "0 0 20px rgba(98, 247, 198, 0.2)",
@@ -22,7 +26,9 @@ const config: Config = {
       },
       fontFamily: {
         sans: ["var(--font-space)", "ui-sans-serif", "system-ui"],
-        display: ["var(--font-rajdhani)", "ui-sans-serif", "system-ui"]
+        display: ["var(--font-rajdhani)", "ui-sans-serif", "system-ui"],
+        // Data values: ports, IDs, countdowns, code.
+        mono: ["var(--font-mono)", "ui-monospace", "SFMono-Regular", "monospace"]
       }
     }
   },

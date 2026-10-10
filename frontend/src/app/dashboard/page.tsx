@@ -2,25 +2,22 @@
 
 import type React from "react";
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { apiRequest } from "@/lib/api";
 import { AuditEntry } from "@/lib/types";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, Skeleton, Sparkline } from "@/components/ui";
 import { useSnapshotStream } from "@/lib/useSnapshotStream";
 import { StreamStatusBadge } from "@/components/stream-status";
-import { formatBytes } from "@/lib/utils";
-import {
-  IconActivity,
-  IconClock,
-  IconClone,
-  IconCpu,
-  IconPulse
-} from "@/components/icons";
+import { PageHeader } from "@/components/page-header";
+import { cn, formatBytes } from "@/lib/utils";
+import { formatDuration, formatRelative, TTL_TEXT, ttlLevel } from "@/lib/format";
+import { IconActivity, IconClock, IconClone, IconCpu, IconPulse } from "@/components/icons";
 import { toast } from "@/lib/toast";
 
 const HISTORY_LEN = 40; // rolling points kept for the sparklines
 
 export default function DashboardPage() {
-  const { snapshot, status } = useSnapshotStream();
+  const { snapshot, status, receivedAt } = useSnapshotStream();
   const [events, setEvents] = useState<AuditEntry[]>([]);
   const [eventsLoading, setEventsLoading] = useState(true);
 
@@ -36,8 +33,11 @@ export default function DashboardPage() {
   const stats = snapshot?.stats ?? null;
 
   const activeClones = containers.length;
-  const expiringSoon = containers.filter((item) => (item.time_remaining_seconds ?? 0) < 300).length;
   const running = containers.filter((item) => item.status === "running").length;
+  const expiring = containers
+    .filter((item) => item.time_remaining_seconds != null && item.time_remaining_seconds < 300)
+    .sort((a, b) => (a.time_remaining_seconds ?? 0) - (b.time_remaining_seconds ?? 0));
+  const soonest = expiring[0];
   const cpuPercent = stats ? Math.min(100, stats.total_cpu_percent) : 0;
   const memoryPercent = stats?.total_memory_limit
     ? Math.min(100, (stats.total_memory_usage / stats.total_memory_limit) * 100)
@@ -64,7 +64,7 @@ export default function DashboardPage() {
         setEvents(data);
       } catch (error) {
         toast({
-          title: "Activity Error",
+          title: "Activity unavailable",
           description: error instanceof Error ? error.message : "Unable to load activity.",
           variant: "destructive"
         });
@@ -79,64 +79,51 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-8">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="font-display text-2xl text-white">Command Overview</h2>
-          <p className="text-sm text-zinc-500">Real-time shadow clone telemetry.</p>
-        </div>
-        <StreamStatusBadge status={status} />
-      </div>
+      <PageHeader
+        title="Command Overview"
+        description="Real-time shadow clone telemetry."
+        actions={<StreamStatusBadge status={status} updatedAt={receivedAt} />}
+      />
 
-      <section className="grid gap-6 md:grid-cols-2 xl:grid-cols-4">
-        <StatCard
-          icon={<IconClone className="h-4 w-4" />}
-          label="Active Shadow Clones"
-          value={loading ? "--" : activeClones}
-        >
-          {loading ? <Skeleton className="h-12 w-full" /> : <Sparkline data={clonesHist} color="#62f7c6" className="text-emerald-300" />}
+      <section aria-label="Key metrics" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <StatCard icon={<IconClone className="h-4 w-4" />} label="Active shadow clones" value={loading ? null : activeClones}>
+          <Sparkline data={clonesHist} color="#62f7c6" label={`Active clones trend, currently ${activeClones}`} />
         </StatCard>
-        <StatCard
-          icon={<IconPulse className="h-4 w-4" />}
-          label="Running Containers"
-          value={loading ? "--" : running}
-        >
-          {loading ? <Skeleton className="h-12 w-full" /> : <Sparkline data={runningHist} color="#4cc9ff" className="text-sky-300" />}
+        <StatCard icon={<IconPulse className="h-4 w-4" />} label="Running containers" value={loading ? null : running}>
+          <Sparkline data={runningHist} color="#4cc9ff" label={`Running containers trend, currently ${running}`} />
         </StatCard>
         <StatCard
           icon={<IconClock className="h-4 w-4" />}
-          label="Expiring in 5m"
-          value={loading ? "--" : expiringSoon}
-          accent={expiringSoon > 0 ? "text-amber-300" : undefined}
+          label="Expiring within 5 min"
+          value={loading ? null : expiring.length}
+          accent={soonest ? TTL_TEXT[ttlLevel(soonest.time_remaining_seconds)] : undefined}
         >
-          {loading ? (
-            <Skeleton className="h-12 w-full" />
-          ) : (
-            <div className="flex h-12 items-end">
-              <p className="text-xs text-zinc-500">
-                {expiringSoon > 0 ? `${expiringSoon} clone(s) ending soon` : "No imminent expiries"}
-              </p>
-            </div>
-          )}
+          <div className="flex h-12 items-end">
+            {soonest ? (
+              <Link href="/dashboard/clones" className="text-sm text-zinc-300 underline-offset-4 hover:underline">
+                Next: {soonest.challenge_name ?? soonest.name} in{" "}
+                <span className="font-mono">{formatDuration(soonest.time_remaining_seconds ?? 0)}</span>
+              </Link>
+            ) : (
+              <p className="text-sm text-muted">No clones about to expire</p>
+            )}
+          </div>
         </StatCard>
-        <StatCard
-          icon={<IconCpu className="h-4 w-4" />}
-          label="CPU Load"
-          value={loading ? "--" : `${cpuPercent.toFixed(1)}%`}
-        >
-          {loading ? <Skeleton className="h-12 w-full" /> : <Sparkline data={cpuHist} color="#c4b5fd" max={100} className="text-violet-300" />}
+        <StatCard icon={<IconCpu className="h-4 w-4" />} label="CPU load" value={loading ? null : `${cpuPercent.toFixed(1)}%`}>
+          <Sparkline data={cpuHist} color="#c4b5fd" max={100} label={`CPU load trend, currently ${cpuPercent.toFixed(1)}%`} />
         </StatCard>
       </section>
 
-      <section className="grid gap-6 lg:grid-cols-3">
+      <section className="grid items-start gap-6 lg:grid-cols-3">
         <Card className="lg:col-span-2">
           <CardHeader>
             <div className="flex items-center gap-2">
-              <IconActivity className="h-4 w-4 text-emerald-300" />
-              <CardTitle>Recent Activity</CardTitle>
+              <IconActivity className="h-4 w-4 text-emerald-300" aria-hidden="true" />
+              <CardTitle>Recent activity</CardTitle>
             </div>
-            <CardDescription>Live feed of spawns, kills, and admin actions.</CardDescription>
+            <CardDescription>Spawns, kills, extensions, and admin actions.</CardDescription>
           </CardHeader>
-          <CardContent className="space-y-1 text-sm">
+          <CardContent className="text-sm">
             {eventsLoading ? (
               <div className="space-y-3 py-1">
                 <Skeleton className="h-4 w-2/3" />
@@ -144,29 +131,37 @@ export default function DashboardPage() {
                 <Skeleton className="h-4 w-3/4" />
               </div>
             ) : events.length ? (
-              events.map((event) => <ActivityRow key={event.id} event={event} />)
+              <ul>
+                {events.map((event) => (
+                  <ActivityRow key={event.id} event={event} />
+                ))}
+              </ul>
             ) : (
-              <p className="py-2 text-zinc-500">No activity recorded yet.</p>
+              <p className="py-2 text-muted">No activity yet — spawned and killed clones will show up here.</p>
             )}
+            <Link href="/dashboard/audit" className="mt-3 inline-block text-sm text-emerald-300 underline-offset-4 hover:underline">
+              View full audit log
+            </Link>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader>
-            <CardDescription>Memory Load</CardDescription>
-            <CardTitle>
-              {loading ? "--" : `${formatBytes(stats?.total_memory_usage || 0)}`}
-            </CardTitle>
+            <CardDescription>Memory in use</CardDescription>
+            {loading ? (
+              <Skeleton className="h-8 w-24" />
+            ) : (
+              <p className="font-display text-3xl font-semibold tabular-nums text-white">
+                {formatBytes(stats?.total_memory_usage || 0)}
+              </p>
+            )}
             <CardDescription>
-              of {loading ? "--" : formatBytes(stats?.total_memory_limit || 0)} allocated
+              of {loading ? "—" : formatBytes(stats?.total_memory_limit || 0)} allocated
+              {loading ? null : ` (${memoryPercent.toFixed(0)}%)`}
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {loading ? (
-              <Skeleton className="h-12 w-full" />
-            ) : (
-              <Sparkline data={memHist} color="#4cc9ff" max={100} className="text-sky-300" />
-            )}
+            <Sparkline data={memHist} color="#4cc9ff" max={100} label={`Memory use trend, currently ${memoryPercent.toFixed(0)}%`} />
           </CardContent>
         </Card>
       </section>
@@ -183,7 +178,7 @@ function StatCard({
 }: {
   icon: React.ReactNode;
   label: string;
-  value: React.ReactNode;
+  value: React.ReactNode | null;
   accent?: string;
   children: React.ReactNode;
 }) {
@@ -191,12 +186,18 @@ function StatCard({
     <Card>
       <CardHeader>
         <div className="flex items-center justify-between">
-          <CardDescription>{label}</CardDescription>
-          <span className="text-zinc-600">{icon}</span>
+          <h2 className="text-sm text-zinc-400">{label}</h2>
+          <span className="text-muted" aria-hidden="true">
+            {icon}
+          </span>
         </div>
-        <CardTitle className={accent}>{value}</CardTitle>
+        {value === null ? (
+          <Skeleton className="mt-2 h-9 w-16" />
+        ) : (
+          <p className={cn("mt-1 font-display text-4xl font-semibold tabular-nums text-white", accent)}>{value}</p>
+        )}
       </CardHeader>
-      <CardContent>{children}</CardContent>
+      <CardContent className="pt-3">{value === null ? <Skeleton className="h-12 w-full" /> : children}</CardContent>
     </Card>
   );
 }
@@ -220,24 +221,19 @@ const ACTION_META: Record<string, { label: string; dot: string }> = {
 function ActivityRow({ event }: { event: AuditEntry }) {
   const meta = ACTION_META[event.action] ?? { label: event.action, dot: "bg-zinc-500" };
   const challengeName = typeof event.meta?.challenge_name === "string" ? event.meta.challenge_name : null;
-  const detail = challengeName ?? (event.target && event.target !== "global" ? event.target : null);
+  // Fall back to the target, minus placeholder targets ("global" settings,
+  // "admin" for login/logout), with full container IDs shortened Docker-style.
+  const target = ["global", "admin"].includes(event.target) ? null : event.target;
+  const detail = challengeName ?? (target && /^[0-9a-f]{64}$/.test(target) ? target.slice(0, 12) : target);
 
   return (
-    <div className="flex items-center gap-3 border-b border-zinc-900/60 py-2 last:border-0">
-      <span className={`h-2 w-2 shrink-0 rounded-full ${meta.dot}`} />
+    <li className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-zinc-900/60 py-2.5 last:border-0">
+      <span className={`h-2 w-2 shrink-0 rounded-full ${meta.dot}`} aria-hidden="true" />
       <span className="text-zinc-200">{meta.label}</span>
-      {detail ? <span className="truncate text-zinc-500">· {detail}</span> : null}
-      <span className="ml-auto shrink-0 text-xs text-zinc-600">
-        {event.actor} · {formatRelative(event.created_at)}
+      {detail ? <span className="min-w-0 truncate text-zinc-400">· {detail}</span> : null}
+      <span className="ml-auto shrink-0 text-xs text-muted">
+        {event.actor} · <time dateTime={new Date(event.created_at * 1000).toISOString()}>{formatRelative(event.created_at)}</time>
       </span>
-    </div>
+    </li>
   );
-}
-
-function formatRelative(epochSeconds: number): string {
-  const diff = Math.max(0, Math.floor(Date.now() / 1000) - epochSeconds);
-  if (diff < 60) return `${diff}s ago`;
-  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-  return `${Math.floor(diff / 86400)}d ago`;
 }

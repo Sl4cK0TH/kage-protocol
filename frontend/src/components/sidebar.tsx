@@ -15,7 +15,7 @@ import {
 
 type IconType = (props: SVGProps<SVGSVGElement>) => JSX.Element;
 
-const navItems: { href: string; label: string; icon: IconType }[] = [
+export const navItems: { href: string; label: string; icon: IconType }[] = [
   { href: "/dashboard", label: "Dashboard", icon: IconDashboard },
   { href: "/dashboard/jutsus", label: "Jutsu Library", icon: IconJutsu },
   { href: "/dashboard/clones", label: "Active Clones", icon: IconClone },
@@ -38,27 +38,29 @@ export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: (
         aria-hidden="true"
       />
       <aside
-        className={`fixed left-0 top-0 z-50 h-screen w-64 border-r border-zinc-900 bg-zinc-950/95 px-6 py-8 transition-transform duration-200 lg:translate-x-0 ${
-          open ? "translate-x-0" : "-translate-x-full"
+        // Closed on small screens: off-canvas *and* invisible (after the slide
+        // finishes) so its links leave the Tab order; always visible on lg+.
+        className={`fixed left-0 top-0 z-50 h-screen w-64 border-r border-zinc-900 bg-zinc-950/95 px-6 py-8 [transition:transform_200ms_ease-out,visibility_0ms_linear_200ms] lg:visible lg:translate-x-0 ${
+          open ? "visible translate-x-0 [transition:transform_200ms_ease-out]" : "invisible -translate-x-full"
         }`}
       >
         <div className="flex items-start justify-between">
           <div className="space-y-2">
             <p className="text-xs uppercase tracking-[0.4em] text-emerald-300">Kage Protocol</p>
-            <h1 className="font-display text-2xl text-white">Command Center</h1>
-            <p className="text-xs text-zinc-500">Enterprise control plane</p>
+            <p className="font-display text-2xl text-white">Command Center</p>
+            <p className="text-xs text-muted">CTF challenge control plane</p>
           </div>
           <button
-            className="text-zinc-500 hover:text-zinc-200 lg:hidden"
+            className="-m-2 rounded p-2 text-zinc-400 hover:text-zinc-200 lg:hidden"
             onClick={onClose}
             aria-label="Close navigation"
           >
             <IconClose className="h-5 w-5" />
           </button>
         </div>
-        <nav className="mt-10 space-y-1 text-sm">
+        <nav className="mt-10 space-y-1 text-sm" aria-label="Main">
           {navItems.map((item) => {
-            const active = pathname === item.href;
+            const active = item.href === "/dashboard" ? pathname === item.href : pathname.startsWith(item.href);
             const Icon = item.icon;
             return (
               <Link
@@ -69,10 +71,10 @@ export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: (
                 className={`flex items-center gap-3 rounded-lg px-4 py-3 transition ${
                   active
                     ? "bg-emerald-500/10 text-emerald-300 border border-emerald-500/40 shadow-glow"
-                    : "border border-transparent text-zinc-400 hover:text-emerald-200 hover:bg-zinc-900"
+                    : "border border-transparent text-zinc-300 hover:text-emerald-200 hover:bg-zinc-900"
                 }`}
               >
-                <Icon className={`h-4 w-4 shrink-0 ${active ? "text-emerald-300" : "text-zinc-500"}`} />
+                <Icon aria-hidden="true" className={`h-4 w-4 shrink-0 ${active ? "text-emerald-300" : "text-zinc-400"}`} />
                 <span>{item.label}</span>
               </Link>
             );

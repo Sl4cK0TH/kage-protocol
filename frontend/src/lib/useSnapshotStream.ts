@@ -19,8 +19,18 @@ export type StreamStatus = "connecting" | "live" | "polling";
  * (proxy strips streaming, backend down, etc.) it transparently falls back to
  * interval polling so the dashboard keeps working either way.
  */
-export function useSnapshotStream(pollMs = 5000): { snapshot: Snapshot | null; status: StreamStatus } {
-  const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
+export function useSnapshotStream(pollMs = 5000): {
+  snapshot: Snapshot | null;
+  status: StreamStatus;
+  /** Browser-clock epoch seconds of the last snapshot (immune to server clock skew). */
+  receivedAt: number | null;
+} {
+  const [snapshot, setSnapshotState] = useState<Snapshot | null>(null);
+  const [receivedAt, setReceivedAt] = useState<number | null>(null);
+  const setSnapshot = (next: Snapshot) => {
+    setSnapshotState(next);
+    setReceivedAt(Math.floor(Date.now() / 1000));
+  };
   const [status, setStatus] = useState<StreamStatus>("connecting");
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -83,5 +93,5 @@ export function useSnapshotStream(pollMs = 5000): { snapshot: Snapshot | null; s
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pollMs]);
 
-  return { snapshot, status };
+  return { snapshot, status, receivedAt };
 }

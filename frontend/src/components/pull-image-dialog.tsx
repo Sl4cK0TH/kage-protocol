@@ -32,6 +32,15 @@ export function PullImageDialog({ image, open, onOpenChange, onComplete }: Props
   const [error, setError] = useState<string>("");
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  // Hold the latest callback in a ref so the stream effect doesn't depend on
+  // its identity. Callers typically pass a function recreated every render;
+  // as an effect dependency, the parent re-render triggered by onComplete()
+  // would restart the pull in an endless loop.
+  const onCompleteRef = useRef(onComplete);
+  useEffect(() => {
+    onCompleteRef.current = onComplete;
+  }, [onComplete]);
+
   useEffect(() => {
     if (!open || !image) return;
 
@@ -60,7 +69,7 @@ export function PullImageDialog({ image, open, onOpenChange, onComplete }: Props
     source.addEventListener("done", () => {
       setState("done");
       source.close();
-      onComplete?.();
+      onCompleteRef.current?.();
     });
 
     source.addEventListener("error", (event) => {
@@ -80,7 +89,7 @@ export function PullImageDialog({ image, open, onOpenChange, onComplete }: Props
     });
 
     return () => source.close();
-  }, [open, image, onComplete]);
+  }, [open, image]);
 
   // Keep the newest layer in view.
   useEffect(() => {
@@ -96,7 +105,7 @@ export function PullImageDialog({ image, open, onOpenChange, onComplete }: Props
             <IconDownload className="h-4 w-4 text-emerald-300" />
             <DialogTitle>Pull Image</DialogTitle>
           </div>
-          <p className="font-mono text-xs text-zinc-500">{image}</p>
+          <p className="font-mono text-xs text-muted">{image}</p>
         </DialogHeader>
 
         <div
@@ -106,12 +115,12 @@ export function PullImageDialog({ image, open, onOpenChange, onComplete }: Props
           {order.length ? (
             order.map((key) => (
               <div key={key} className="flex gap-2 text-green-400">
-                {key.length === 12 ? <span className="text-zinc-600">{key}</span> : null}
+                {key.length === 12 ? <span className="text-muted">{key}</span> : null}
                 <span className="truncate">{layers[key]}</span>
               </div>
             ))
           ) : (
-            <p className="text-zinc-600">Starting pull…</p>
+            <p className="text-muted">Starting pull…</p>
           )}
         </div>
 

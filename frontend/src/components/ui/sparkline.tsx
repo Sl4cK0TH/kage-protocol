@@ -10,6 +10,8 @@ interface SparklineProps {
   /** Fixed upper bound for the y-axis (e.g. 100 for a percentage). Auto-scales when omitted. */
   max?: number;
   className?: string;
+  /** Accessible description, e.g. "CPU load trend, currently 12%". */
+  label?: string;
 }
 
 /**
@@ -19,7 +21,7 @@ interface SparklineProps {
  * the baseline, a recessive baseline, and a single marker on the latest point
  * (selective direct marks, never one per point). One series → no legend.
  */
-export function Sparkline({ data, color = "#62f7c6", height = 48, max, className }: SparklineProps) {
+export function Sparkline({ data, color = "#62f7c6", height = 48, max, className, label = "Trend" }: SparklineProps) {
   const gradientId = useId();
   const width = 100; // viewBox units; the SVG scales to its container width.
 
@@ -30,12 +32,16 @@ export function Sparkline({ data, color = "#62f7c6", height = 48, max, className
   const upper = max ?? Math.max(1, ...data);
   const lower = 0;
   const range = upper - lower || 1;
-  const stepX = data.length > 1 ? width / (data.length - 1) : width;
+  const stepX = width / Math.max(1, (data.length === 1 ? 2 : data.length) - 1);
 
-  const points = data.map((value, index) => {
+  // A single sample has no trend yet: draw it as a flat line rather than a
+  // wedge from the left edge (which read as a sudden drop to zero).
+  const series = data.length === 1 ? [data[0], data[0]] : data;
+  const points = series.map((value, index) => {
     const x = index * stepX;
     const clamped = Math.max(lower, Math.min(upper, value));
-    const y = height - ((clamped - lower) / range) * height;
+    // Keep 4 units of headroom so a value at the max isn't clipped by the edge.
+    const y = height - ((clamped - lower) / range) * (height - 4);
     return [x, y] as const;
   });
 
@@ -51,7 +57,7 @@ export function Sparkline({ data, color = "#62f7c6", height = 48, max, className
       height={height}
       className={className}
       role="img"
-      aria-label="trend sparkline"
+      aria-label={label}
     >
       <defs>
         <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
