@@ -199,16 +199,22 @@ class DockerService:
         logs = container.logs(tail=tail, stdout=True, stderr=True)
         return logs.decode("utf-8", errors="replace")
 
-    def kill_container(self, container_id: str) -> str:
-        """Force-remove a Kage container; returns its full ID."""
+    def kill_container(self, container_id: str) -> dict[str, str | None]:
+        """
+        Force-remove a Kage container.
+
+        Returns its full ID (callers may have passed a short ID or name) and
+        Jutsu name, read from the labels before removal, for audit records.
+        """
         container = self._get_kage_container(container_id)
+        challenge_name = (container.labels or {}).get(CHALLENGE_NAME_LABEL)
         try:
             container.remove(force=True)
         except NotFound:
             logger.warning("Container %s vanished before it could be killed", container_id[:12])
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Container not found")
         logger.info("Killed container %s", container.id[:12])
-        return container.id
+        return {"id": container.id, "challenge_name": challenge_name}
 
     # -- network ----------------------------------------------------------
 

@@ -98,7 +98,10 @@ def test_kill_removes_container_expiry_and_audits(admin_client, docker_client):
     assert response.status_code == 200
     assert not docker_client.containers.exists(clone.id)
     assert expiry_of(clone.id) is None
-    assert admin_client.get("/api/admin/audit?action=kill_container").json()[0]["target"] == clone.id
+    event = admin_client.get("/api/admin/audit?action=kill_container").json()[0]
+    assert event["target"] == clone.id
+    # The Jutsu name is captured before removal so the activity feed can show it.
+    assert event["meta"]["challenge_name"] == "Web 101"
 
 
 def test_kill_by_name_cleans_up_expiry_keyed_by_full_id(admin_client, docker_client):
@@ -138,6 +141,7 @@ def test_extend_adds_to_current_expiry(admin_client, docker_client):
     assert expiry_of(clone.id) == label_expiry + 15 * 60
     event = admin_client.get("/api/admin/audit?action=extend_ttl").json()[0]
     assert event["meta"]["minutes"] == 15
+    assert event["meta"]["challenge_name"] == "Web 101"
 
 
 def test_extend_of_already_expired_clone_counts_from_now(admin_client, docker_client):

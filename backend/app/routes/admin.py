@@ -358,10 +358,16 @@ def kill_container(
     session: Session = Depends(get_session),
     admin: str = Depends(get_current_admin),
 ) -> dict[str, str]:
-    full_id = get_docker_service().kill_container(container_id)
-    lifecycle_service.remove_expiry(session, full_id)
+    killed = get_docker_service().kill_container(container_id)
+    lifecycle_service.remove_expiry(session, killed["id"])
     client_ip = request.client.host if request.client else "unknown"
-    log_event(session, actor=admin, action="kill_container", target=full_id, meta={"ip": client_ip})
+    log_event(
+        session,
+        actor=admin,
+        action="kill_container",
+        target=killed["id"],
+        meta={"ip": client_ip, "challenge_name": killed["challenge_name"]},
+    )
     return {"status": "killed"}
 
 
@@ -397,7 +403,12 @@ def extend_container(
         actor=admin,
         action="extend_ttl",
         target=container["id"],
-        meta={"ip": client_ip, "minutes": payload.minutes, "expires_at": new_expiry},
+        meta={
+            "ip": client_ip,
+            "minutes": payload.minutes,
+            "expires_at": new_expiry,
+            "challenge_name": container.get("challenge_name"),
+        },
     )
     return {
         "container_id": container["id"],

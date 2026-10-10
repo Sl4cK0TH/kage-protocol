@@ -3,8 +3,10 @@
 import time
 
 import pytest
+from sqlmodel import select
 
 from app.db import session_scope
+from app.models import AuditLog
 from app.services import lifecycle_service
 from tests.support import API_KEY, PUBLIC_HOST, RATE_LIMIT_COUNT
 
@@ -83,6 +85,9 @@ def test_public_kill_removes_clone_and_expiry(client, jutsu, api_headers, docker
     assert not docker_client.containers.exists(container_id)
     with session_scope() as session:
         assert lifecycle_service.get_expiry(session, container_id) is None
+        event = session.exec(select(AuditLog).where(AuditLog.action == "public_kill")).one()
+    assert event.target == container_id
+    assert event.meta["challenge_name"] == "Web 101"
 
 
 def test_public_kill_cannot_touch_non_kage_containers(client, api_headers, docker_client):

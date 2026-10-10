@@ -117,16 +117,16 @@ def public_kill_container(
     # kill_container only touches Kage-labelled containers; anything else
     # (including the backend/proxy themselves) is reported as not found.
     try:
-        full_id = get_docker_service().kill_container(container_id)
+        killed = get_docker_service().kill_container(container_id)
     except HTTPException:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Container not found or already dead")
 
-    lifecycle_service.remove_expiry(session, full_id)
+    lifecycle_service.remove_expiry(session, killed["id"])
     log_event(
         session,
         actor="api_key",
         action="public_kill",
-        target=full_id,
-        meta={"ip": client_ip},
+        target=killed["id"],
+        meta={"ip": client_ip, "challenge_name": killed["challenge_name"]},
     )
     return {"status": "success", "message": "Challenge terminated."}
