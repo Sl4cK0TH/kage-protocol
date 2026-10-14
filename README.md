@@ -53,57 +53,59 @@ backend/
   scripts/        hash_password.py, spawn_test.sh
   INTEGRATION.md  Public API and platform integration guide
 frontend/         Next.js admin dashboard (see frontend/README.md)
-docker-compose.yml  Backend + Docker socket proxy
+docker-compose.yml  Backend, frontend, and Docker socket proxy
 .github/workflows/  CI
+run.sh              Interactive setup and launcher
 ```
 
 ## Prerequisites
 
 - Docker and Docker Compose
-- Node.js **18.17+** (for the frontend)
+- Node.js **18.17+** — only for running the frontend outside Docker
 - Python **3.11** for local backend development and tests — the pinned dependencies don't build on Python 3.13+
 
 ## Quick Start
 
-**1. Generate the admin password hash**
-
 ```bash
-pip install bcrypt
-python backend/scripts/hash_password.py 'your_password_here'
+./run.sh
 ```
 
-**2. Configure the backend**
+On first run it asks for everything it needs, then builds and starts the backend, dashboard, and Docker socket proxy:
 
-```bash
-cp backend/.env.example backend/.env
-```
+- **Admin account**: username and password. The password is typed hidden, confirmed, and bcrypt-hashed inside the backend's Docker image, so no local Python is needed.
+- **Network**: the host you'll open the dashboard from, the host players connect to, and the ports (defaults: API **8081**, dashboard **8082**). Ports already used by other programs are rejected.
+- **Secrets**: a platform API key and session secret are generated for you. The API key is printed once, for your CTF platform's config.
 
-Edit `backend/.env` and set `ADMIN_USERNAME`, `KAGE_API_KEY`, `SESSION_SECRET` (long random strings for the last two), and paste the `ADMIN_PASSWORD_HASH=...` line printed in step 1.
+When both services respond, it prints the dashboard URL. Log in with the account you just created.
+
+| Command | What it does |
+|---|---|
+| `./run.sh` | Start (runs setup first if Kage isn't configured yet) |
+| `./run.sh setup` | Change settings: current values are the defaults, a blank password keeps the existing one, and `backend/.env` is backed up first |
+| `./run.sh stop` | Stop everything (data is kept) |
+| `./run.sh status` | Show container status |
+| `./run.sh logs [service]` | Follow logs |
+
+Then add a Jutsu (pull its image first if it isn't on the host), spawn a clone, and point your platform at the public API — see [backend/INTEGRATION.md](backend/INTEGRATION.md).
+
+<details>
+<summary><b>Manual setup (without run.sh)</b></summary>
+
+1. Generate the password hash: `pip install bcrypt && python backend/scripts/hash_password.py 'your_password'`
+2. `cp backend/.env.example backend/.env`, then set `ADMIN_USERNAME`, `KAGE_API_KEY`, `SESSION_SECRET` (long random strings for the last two), and paste the `ADMIN_PASSWORD_HASH=...` line from step 1.
+3. Pin the project name so every command manages the same stack: `echo "COMPOSE_PROJECT_NAME=kage" > .env`
+4. `docker compose up -d --build`, then open `http://localhost:8082`.
 
 > [!IMPORTANT]
 > Keep the **single quotes** around the hash: `ADMIN_PASSWORD_HASH='$2b$12$...'`.
 > Docker Compose interpolates `$VAR` in env files, so an unquoted hash is silently truncated and login always fails.
 
-**3. Start the backend**
+</details>
 
-```bash
-docker compose up --build
-```
+> [!NOTE]
+> The dashboard's backend URL is baked in **when the image is built**. If you change ports or hosts by hand rather than with `./run.sh setup`, update `KAGE_PUBLIC_API_URL` and `CORS_ORIGINS` to match, then rebuild with `docker compose up -d --build`.
 
-The API listens on `http://localhost:8000`. Check `http://localhost:8000/api/health` — it should report `"status": "healthy"`.
-
-**4. Start the frontend**
-
-```bash
-cd frontend
-cp .env.example .env   # NEXT_PUBLIC_API_BASE must be reachable from your browser
-npm install
-npm run dev
-```
-
-**5. Log in** at `http://localhost:3000` with the admin credentials from step 2.
-
-Then add a Jutsu (pull its image first if it isn't on the host), spawn a clone, and point your platform at the public API — see [backend/INTEGRATION.md](backend/INTEGRATION.md).
+For frontend development with hot reload, run it outside Docker instead — see [frontend/README.md](frontend/README.md).
 
 ## Using the Dashboard
 
@@ -129,7 +131,7 @@ Then add a Jutsu (pull its image first if it isn't on the host), spawn a clone, 
 | `SESSION_COOKIE_NAME` | | `kage_session` | Session cookie name (keep in sync with the frontend) |
 | `SESSION_MAX_AGE_SECONDS` | | `3600` | Admin session lifetime |
 | `COOKIE_SECURE` | | `false` | Set `true` when served over HTTPS |
-| `CORS_ORIGINS` | | `http://localhost:3000` | Comma-separated origins allowed to call the API (the dashboard's origin) |
+| `CORS_ORIGINS` | | `http://localhost:3000` | Comma-separated origins allowed to call the API — include the dashboard's origin, e.g. `http://localhost:8082` for Docker and `http://localhost:3000` for `npm run dev` |
 | `DB_URL` | | `sqlite:///./data/kage.db` | Database URL |
 | `PUBLIC_HOST` | | `localhost` | Hostname returned to players in spawn responses |
 | `CHALLENGE_NETWORK` | | `kage-challenges` | Docker network clones are attached to (created on startup) |
@@ -140,11 +142,21 @@ Then add a Jutsu (pull its image first if it isn't on the host), spawn a clone, 
 | `JSON_LOGS` | | `false` | Emit JSON-formatted logs |
 | `DEFAULT_CPU_LIMIT` | | `0.5` | Currently unused — each Jutsu's own CPU limit applies (default 0.5 cores) |
 
-### Frontend (`frontend/.env`)
+### Docker Compose (shell environment or a repo-root `.env`)
 
 | Variable | Default | Description |
 |---|---|---|
-| `NEXT_PUBLIC_API_BASE` | `http://localhost:8000` | Backend URL, as reachable from the admin's browser |
+| `KAGE_BACKEND_PORT` | `8081` | Host port the backend API is published on. |
+| `KAGE_PUBLIC_API_URL` | `http://localhost:8081` | Backend URL baked into the dashboard image — the address the admin's *browser* uses. Rebuild after changing. |
+| `KAGE_FRONTEND_PORT` | `8082` | Host port the dashboard is published on. Add the matching origin to `CORS_ORIGINS`. |
+
+`./run.sh setup` writes these to the repo-root `.env` for you, together with `COMPOSE_PROJECT_NAME=kage`.
+
+### Frontend outside Docker (`frontend/.env`)
+
+| Variable | Default | Description |
+|---|---|---|
+| `NEXT_PUBLIC_API_BASE` | `http://localhost:8081` | Backend URL, as reachable from the admin's browser |
 | `NEXT_PUBLIC_SESSION_COOKIE_NAME` | `kage_session` | Must match the backend's `SESSION_COOKIE_NAME` |
 
 ## API Overview
@@ -179,7 +191,9 @@ Then add a Jutsu (pull its image first if it isn't on the host), spawn a clone, 
 
 Backend (from `backend/`):
 
-- `docker compose up --build` — run the backend and socket proxy (from the repo root; recommended)
+- `./run.sh` — set up (first run) and start everything; see [Quick Start](#quick-start)
+- `docker compose up -d --build` — start the backend, dashboard, and socket proxy without the script
+- `docker compose down` — stop the stack
 - `uvicorn app.main:app --reload` — run the backend locally (needs a reachable Docker daemon)
 - `pip install -r requirements-dev.txt && pytest` — run the test suite (Python 3.11)
 

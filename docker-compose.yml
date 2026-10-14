@@ -43,7 +43,8 @@ services:
     environment:
       - DOCKER_HOST=tcp://docker-socket-proxy:2375
     ports:
-      - "8000:8000"
+      # Host port for the API. The dashboard's KAGE_PUBLIC_API_URL must match.
+      - "${KAGE_BACKEND_PORT:-8081}:8000"
     volumes:
       - ./backend:/app
       - kage-data:/app/data
@@ -52,6 +53,24 @@ services:
       - docker-socket-proxy
     networks:
       - kage-internal
+
+  # --- Frontend dashboard ---
+  # Talks to the backend from the admin's *browser*, so it only needs the
+  # backend's published host URL. It deliberately isn't on kage-internal,
+  # keeping it away from the Docker socket proxy.
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # Inlined into the browser bundle at build time: rebuild after changing
+        # (docker compose up -d --build). Override with KAGE_PUBLIC_API_URL.
+        NEXT_PUBLIC_API_BASE: ${KAGE_PUBLIC_API_URL:-http://localhost:8081}
+    ports:
+      # The dashboard's origin must be listed in the backend's CORS_ORIGINS.
+      - "${KAGE_FRONTEND_PORT:-8082}:3000"
+    restart: unless-stopped
+    depends_on:
+      - backend
 
 networks:
   kage-internal:

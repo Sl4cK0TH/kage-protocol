@@ -49,9 +49,24 @@ jobs:
       - run: npx tsc --noEmit
       - run: npm run build
 
+  shell:
+    name: Shell scripts lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # shellcheck is preinstalled on GitHub's Ubuntu runners.
+      - run: shellcheck run.sh backend/scripts/spawn_test.sh
+
   backend-image:
     name: Backend image builds
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - run: docker build --tag kage-backend:ci backend
+
+  frontend-image:
+    name: Frontend image builds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build --tag kage-frontend:ci frontend

@@ -7,6 +7,7 @@ This application acts as a Command Center to dynamically spawn, manage, and kill
 - Backend: Python 3.11, FastAPI 0.111 (with lifespan context manager). Dependencies are pinned and do not build on Python 3.13+.
 - Database: SQLite (via SQLModel / SQLAlchemy). Tables are created with `create_all` on startup; there are no migrations, so new tables are fine but changes to existing columns need a manual migration.
 - Infrastructure: Docker Python SDK via Tecnativa docker-socket-proxy (never mount raw socket).
+- Deployment: `./run.sh` (interactive setup writing backend/.env and the root .env, then `docker compose up -d --build`) runs the socket proxy, backend (host port 8081), and frontend (host port 8082).
 - CI: GitHub Actions (`.github/workflows/ci.yml`) — backend pytest on 3.11, frontend `tsc --noEmit` + `next build`, backend image build.
 
 # LORE & AESTHETIC (UI/UX)
@@ -57,7 +58,8 @@ This application acts as a Command Center to dynamically spawn, manage, and kill
 - src/lib/useSnapshotStream.ts / useLogStream.ts: EventSource hooks; the snapshot stream falls back to polling.
 - src/components/dashboard-shell.tsx: Layout with the collapsible mobile sidebar.
 - src/lib/integration-snippets.ts: Snippets on the Documentation page — must mirror backend/INTEGRATION.md exactly.
-- middleware.ts: Redirects /dashboard/* to /login when no session cookie is present (presence check only).
+- src/middleware.ts: Redirects /dashboard/* to /login when no session cookie is present (presence check only). It must stay in src/ — Next.js ignores a root-level middleware.ts when the app lives in src/.
+- Dockerfile: multi-stage standalone build (NEXT_OUTPUT=standalone) served by the docker-compose `frontend` service; NEXT_PUBLIC_API_BASE is a build arg (KAGE_PUBLIC_API_URL).
 
 # TESTING
 - backend/tests/ runs against an in-memory fake *docker client* (tests/support.py) installed under the real DockerService, so service logic is exercised. No Docker needed.
@@ -80,4 +82,5 @@ This application acts as a Command Center to dynamically spawn, manage, and kill
 - `log_event()` commits, which expires ORM instances — `session.refresh()` anything you return afterwards or it serializes as `{}`.
 - Wrap blocking Docker calls in `asyncio.to_thread()` inside async code (the Reaper and SSE streams share the event loop).
 - Add or update tests for behavior changes; CI must stay green.
-- Keep README.md, backend/INTEGRATION.md, and the in-app Documentation page in sync when the API or configuration changes.
+- Keep README.md, backend/INTEGRATION.md, and the in-app Documentation page in sync when the API or configuration changes; update run.sh when configuration keys or ports change.
+- run.sh must never run `docker compose down -v` or print/echo the admin password; pass secrets via stdin, not argv.

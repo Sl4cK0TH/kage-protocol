@@ -111,7 +111,7 @@ Only containers that Kage spawned can be stopped. Requests naming any other cont
 With the backend running and at least one Jutsu created, `backend/scripts/spawn_test.sh` spawns a clone and prints the response (requires `jq`):
 
 ```bash
-API_BASE=http://localhost:8000 KAGE_KEY=your-api-key CHALLENGE_ID=1 bash backend/scripts/spawn_test.sh
+API_BASE=http://localhost:8081 KAGE_KEY=your-api-key CHALLENGE_ID=1 bash backend/scripts/spawn_test.sh
 ```
 
 ---

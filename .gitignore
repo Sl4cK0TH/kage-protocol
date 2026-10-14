@@ -1,5 +1,7 @@
 # Env files
+/.env
 backend/.env
+backend/.env.bak.*
 frontend/.env
 
 # Node

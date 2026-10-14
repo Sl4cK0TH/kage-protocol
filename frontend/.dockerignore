@@ -1,0 +1,15 @@
+# Rebuilt inside the image.
+node_modules
+.next
+
+# Local env files must not leak into the image: the build gets its settings
+# from docker-compose build args instead.
+.env
+.env.*
+!.env.example
+
+# Editor/tooling noise.
+*.tsbuildinfo
+.git
+.playwright-cli
+npm-debug.log*

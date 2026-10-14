@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-API_BASE=${API_BASE:-http://localhost:8000}
+API_BASE=${API_BASE:-http://localhost:8081}
 KAGE_KEY=${KAGE_KEY:-change-me}
 CHALLENGE_ID=${CHALLENGE_ID:-1}
 
